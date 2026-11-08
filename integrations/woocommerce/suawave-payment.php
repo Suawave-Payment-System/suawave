@@ -5,7 +5,7 @@
  * Description: Accept stablecoin payments such as USDT in WooCommerce. An order is paid only after a signed callback verifies.
  * Version: 1.0.0
  * Requires at least: 6.0
- * Requires PHP: 8.1
+ * Requires PHP: 8.3
  * Author: Suawave
  * Author URI: https://suawave.com
  * License: GPL-2.0-or-later

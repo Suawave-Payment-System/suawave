@@ -63,7 +63,8 @@ final class PrestashopRuntime
             new PrestashopPublicKeyProvider(self::client()),
             self::setting(self::ORIGIN),
             self::store(),
-            new PrestashopOrderGateway()
+            new PrestashopOrderGateway(),
+            new PrestashopFailureLog()
         );
     }
 }

@@ -221,6 +221,30 @@ final class CallbackProcessorTest extends TestCase
         $this->assertSame([], $this->orders->paidOrders);
     }
 
+    public function testFailureWhileMarkingPaidIsLoggedBeforeAnswering500(): void
+    {
+        $log = new RecordingFailureLog();
+        $processor = new CallbackProcessor($this->keys, self::ORIGIN, $this->store, $this->orders, $log);
+        $this->orders->failNext = true;
+
+        $outcome = $processor->process($this->signedGet($this->confirmed('uuid-1', '100.000000')));
+
+        $this->assertSame(500, $outcome->httpStatus);
+        $this->assertCount(1, $log->failures);
+        $this->assertSame('order history failed', $log->failures[0]->getMessage());
+    }
+
+    public function testRejectedSignatureIsNotLogged(): void
+    {
+        $log = new RecordingFailureLog();
+        $processor = new CallbackProcessor($this->keys, self::ORIGIN, $this->store, $this->orders, $log);
+
+        $outcome = $processor->process(new CallbackRequest('GET', self::PATH . '&' . $this->confirmed('uuid-1', '100.000000'), '', '', 'bad'));
+
+        $this->assertSame(401, $outcome->httpStatus);
+        $this->assertSame([], $log->failures);
+    }
+
     public function testFailureWhileMarkingPaidRollsBackSoRetryWorks(): void
     {
         $request = $this->signedGet($this->confirmed('uuid-1', '100.000000'));

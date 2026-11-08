@@ -10,9 +10,11 @@ if (!defined('ABSPATH')) {
 
 final class CallbackEndpoint
 {
+    public const HOOK_PRIORITY = 20;
+
     public static function register(): void
     {
-        add_action('init', [self::class, 'maybeHandle'], 1);
+        add_action('init', [self::class, 'maybeHandle'], self::HOOK_PRIORITY);
     }
 
     public static function maybeHandle(): void

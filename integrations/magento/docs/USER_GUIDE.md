@@ -1,6 +1,6 @@
 # Suawave Payment user guide
 
-Version 1.0.0. Compatible with Magento Open Source and Adobe Commerce 2.4.4 or newer on PHP 8.1 or newer.
+Version 1.0.0. Compatible with Magento Open Source and Adobe Commerce 2.4.4 or newer on PHP 8.3 or newer.
 
 ## What it does
 

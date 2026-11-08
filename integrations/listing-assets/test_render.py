@@ -37,10 +37,35 @@ class ListingTest(unittest.TestCase):
             rendered = render.render_all(self.tmp)[rel]
             self.assertEqual(rendered, original)
             with open(path, 'w', encoding='utf-8') as handle:
-                handle.write(original.replace('stablecoin', 'coin', 1) if 'stablecoin' in original else original + ' ')
+                handle.write(original.replace(render.load(self.tmp)['product']['php_min'], '8.1', 1) if rel in render.PHP_ONLY else original.replace('stablecoin', 'coin', 1) if 'stablecoin' in original else original + ' ')
             self.assertEqual(render.drift(self.tmp), [rel], rel)
             with open(path, 'w', encoding='utf-8') as handle:
                 handle.write(original)
+
+    def test_php_floor_reaches_every_metadata_file_and_readme(self):
+        path = os.path.join(self.tmp, 'integrations/listing.json')
+        with open(path, encoding='utf-8') as handle:
+            data = json.load(handle)
+        data['product']['php_min'] = '8.4'
+        with open(path, 'w', encoding='utf-8') as handle:
+            json.dump(data, handle)
+        rendered = render.render_all(self.tmp)
+        for rel in render.PHP_COMPOSERS:
+            self.assertEqual(json.loads(rendered[rel])['require']['php'], '>=8.4', rel)
+        for rel in render.PHP_DOCS:
+            self.assertIn('PHP 8.4 or newer', rendered[rel], rel)
+        self.assertIn('Requires PHP: 8.4', rendered[render.WP_README])
+        self.assertIn('Requires PHP: 8.4', rendered[render.WP_PLUGIN])
+
+    def test_php_floor_must_be_a_version(self):
+        path = os.path.join(self.tmp, 'integrations/listing.json')
+        with open(path, encoding='utf-8') as handle:
+            data = json.load(handle)
+        data['product']['php_min'] = '>=8.2'
+        with open(path, 'w', encoding='utf-8') as handle:
+            json.dump(data, handle)
+        with self.assertRaises(render.ListingError):
+            render.render_all(self.tmp)
 
     def test_wording_change_reaches_every_file_and_sheet(self):
         path = os.path.join(self.tmp, 'integrations/listing.json')
@@ -62,6 +87,9 @@ class ListingTest(unittest.TestCase):
             json.dump(data, handle)
         after = render.render_all(self.tmp)
         for rel in render.RENDERED:
+            if rel in render.PHP_DOCS and rel != render.MG_GUIDE:
+                self.assertEqual(before[rel], after[rel], rel)
+                continue
             self.assertNotEqual(before[rel], after[rel], rel)
         for name, text in render.sheets(self.tmp).items():
             self.assertNotEqual(before_sheets[name], text, name)

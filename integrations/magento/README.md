@@ -6,7 +6,7 @@ The module talks to the gateway's public, no-registration API. No account, API k
 
 ## Requirements
 
-- Magento Open Source or Adobe Commerce 2.4.4 or newer, PHP 8.1 or newer.
+- Magento Open Source or Adobe Commerce 2.4.4 or newer, PHP 8.3 or newer.
 - PHP extensions `bcmath`, `curl`, `json`, `openssl`.
 - A gateway you can reach over HTTPS (HTTP only against a mock gateway).
 - A store that the gateway can reach over HTTPS from the public internet. Callbacks to private, loopback or link-local addresses are refused by the gateway.

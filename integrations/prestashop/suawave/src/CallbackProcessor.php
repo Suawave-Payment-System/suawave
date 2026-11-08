@@ -12,7 +12,8 @@ final class CallbackProcessor
         private readonly PublicKeyProvider $keys,
         private readonly string $externalOrigin,
         private readonly PaymentStore $store,
-        private readonly OrderGateway $orders
+        private readonly OrderGateway $orders,
+        private readonly ?FailureLog $log = null
     ) {
     }
 
@@ -37,7 +38,8 @@ final class CallbackProcessor
         }
         try {
             return $this->store->transactional(fn (): CallbackOutcome => $this->apply($request, $fields, $event));
-        } catch (Throwable) {
+        } catch (Throwable $failure) {
+            $this->log?->record($failure);
             return CallbackOutcome::rejected(500, 'processing_failed');
         }
     }

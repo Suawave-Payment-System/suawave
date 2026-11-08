@@ -68,20 +68,23 @@ class OrderPaymentLedger implements PaymentLedger
         $payment = $order->getPayment();
         $wasPaid = ($payment->getAdditionalInformation(self::PAID) ?? '0') === '1';
         $payment->setAdditionalInformation(self::RECEIVED, $newReceivedTotal);
-        $order->addCommentToStatusHistory(sprintf(
+        $comment = sprintf(
             'Confirmed crypto deposit %s of %s (event %s). Received in total: %s.',
             $depositTransaction,
             $depositAmount,
             $eventUuid,
             $newReceivedTotal
-        ));
+        );
         if ($fullyPaid && !$wasPaid) {
             $payment->setAdditionalInformation(self::PAID, '1');
-            if (!$this->invoice($order)) {
-                $this->orders->save($order);
-            }
+            $this->invoice($order);
+            $order->setState(Order::STATE_PROCESSING);
+            $order->setStatus($order->getConfig()->getStateDefaultStatus(Order::STATE_PROCESSING));
+            $order->addCommentToStatusHistory($comment);
+            $this->orders->save($order);
             return;
         }
+        $order->addCommentToStatusHistory($comment);
         $this->orders->save($order);
     }
 

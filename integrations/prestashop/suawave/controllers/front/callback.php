@@ -16,6 +16,7 @@ class SuawaveCallbackModuleFrontController extends ModuleFrontController
 
     public function init(): void
     {
+        parent::init();
         if (!PrestashopRuntime::isConfigured()) {
             $this->respond(503, 'not_configured');
         }

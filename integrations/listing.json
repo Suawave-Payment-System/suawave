@@ -48,6 +48,7 @@
         ]
       }
     ],
+    "php_min": "8.3",
     "support_email": "support@suawave.com",
     "support_url": "https://suawave.com/docs",
     "docs_url": "https://suawave.com/docs",

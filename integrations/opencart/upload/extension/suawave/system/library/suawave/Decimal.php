@@ -29,6 +29,13 @@ final class Decimal
         return bcadd($left, $right, max(self::scaleOf($left), self::scaleOf($right)));
     }
 
+    public static function subtract(string $left, string $right): string
+    {
+        self::require($left);
+        self::require($right);
+        return bcsub($left, $right, max(self::scaleOf($left), self::scaleOf($right)));
+    }
+
     public static function fromOrderTotal(string $total, string $currencyValue, int $places): string
     {
         self::require($total);

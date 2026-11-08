@@ -14,6 +14,10 @@ PS_COMPOSER = 'integrations/prestashop/composer.json'
 PS_MODULE = 'integrations/prestashop/suawave/suawave.php'
 OC_COMPOSER = 'integrations/opencart/composer.json'
 OC_INSTALL = 'integrations/opencart/upload/extension/suawave/install.json'
+WP_DOC = 'integrations/woocommerce/README.md'
+MG_DOC = 'integrations/magento/README.md'
+PS_DOC = 'integrations/prestashop/README.md'
+OC_DOC = 'integrations/opencart/README.md'
 JS_PACKAGE = 'sdk/js/package.json'
 MCP_PACKAGE = 'cmd/mcp/npm/package.json'
 MCP_SERVER = 'cmd/mcp/npm/server.json'
@@ -21,7 +25,12 @@ MCP_SERVER = 'cmd/mcp/npm/server.json'
 RENDERED = [
     WP_README, WP_PLUGIN, WP_COMPOSER, MG_COMPOSER, MG_GUIDE, PS_COMPOSER,
     PS_MODULE, OC_COMPOSER, OC_INSTALL, JS_PACKAGE, MCP_PACKAGE, MCP_SERVER,
+    WP_DOC, MG_DOC, PS_DOC, OC_DOC,
 ]
+
+PHP_COMPOSERS = [WP_COMPOSER, MG_COMPOSER, PS_COMPOSER, OC_COMPOSER]
+PHP_DOCS = [WP_DOC, MG_DOC, PS_DOC, OC_DOC, MG_GUIDE]
+PHP_ONLY = PHP_COMPOSERS + PHP_DOCS
 
 SHEETS = [
     ('wordpress', 'WordPress.org plugin directory'),
@@ -113,6 +122,21 @@ def set_json_array(text, key, values):
     return text[:match.start(2) - 1] + body + text[match.end():]
 
 
+def php_floor(listing):
+    value = listing['product'].get('php_min', '')
+    if not re.fullmatch(r'\d+\.\d+', value):
+        raise ListingError('product.php_min must look like 8.2')
+    return value
+
+
+def render_composer_php(listing, text):
+    return sub_once(r'("php"\s*:\s*)"[^"]*"', lambda m: m.group(1) + '">=' + php_floor(listing) + '"', text)
+
+
+def render_doc_php(listing, text):
+    return sub_once(r'PHP \d+\.\d+ or newer', 'PHP %s or newer' % php_floor(listing), text)
+
+
 def sub_once(pattern, replacement, text, flags=0):
     result, count = re.subn(pattern, lambda m: replacement(m) if callable(replacement) else replacement, text, count=1, flags=flags)
     if count != 1:
@@ -143,6 +167,7 @@ def render_readme(listing, text):
 
 def render_plugin_header(listing, text):
     text = sub_once(r'^ \* Plugin Name: .*$', ' * Plugin Name: ' + field(listing, 'wordpress', 'title'), text, re.M)
+    text = sub_once(r'^ \* Requires PHP: .*$', ' * Requires PHP: ' + php_floor(listing), text, re.M)
     return sub_once(r'^ \* Description: .*$', ' * Description: ' + field(listing, 'wordpress', 'short'), text, re.M)
 
 
@@ -164,6 +189,7 @@ def render_all(root):
     for rel in RENDERED:
         out[rel] = read(root, rel)
     out[WP_README] = render_readme(listing, out[WP_README])
+    out[WP_README] = sub_once(r'^Requires PHP: .*$', 'Requires PHP: ' + php_floor(listing), out[WP_README], re.M)
     out[WP_PLUGIN] = render_plugin_header(listing, out[WP_PLUGIN])
     out[WP_COMPOSER] = set_json_string(out[WP_COMPOSER], 'description', description(listing, 'woocommerce_composer'))
     out[MG_COMPOSER] = set_json_string(out[MG_COMPOSER], 'description', description(listing, 'magento'))
@@ -179,6 +205,10 @@ def render_all(root):
     out[MCP_PACKAGE] = set_json_array(mcp, 'keywords', field(listing, 'npm_mcp', 'tags'))
     server = set_json_string(out[MCP_SERVER], 'title', field(listing, 'mcp_registry', 'title'))
     out[MCP_SERVER] = set_json_string(server, 'description', description(listing, 'mcp_registry'))
+    for rel in PHP_COMPOSERS:
+        out[rel] = render_composer_php(listing, out[rel])
+    for rel in PHP_DOCS:
+        out[rel] = render_doc_php(listing, out[rel])
     for rel in (WP_COMPOSER, MG_COMPOSER, PS_COMPOSER, OC_COMPOSER, OC_INSTALL, JS_PACKAGE, MCP_PACKAGE, MCP_SERVER):
         json.loads(out[rel])
     return out
@@ -226,6 +256,9 @@ def main(argv):
             return 1
         print('listing check passed: %d files match integrations/listing.json' % len(RENDERED))
         return 0
+    if mode == '--php-floor':
+        print(php_floor(load(root)))
+        return 0
     if mode == '--write':
         rendered = render_all(root)
         for rel in RENDERED:
@@ -241,7 +274,7 @@ def main(argv):
             with open(os.path.join(target, name), 'w', encoding='utf-8') as handle:
                 handle.write(content)
         return 0
-    print('usage: render.py --check | --write | --sheets <dir>', file=sys.stderr)
+    print('usage: render.py --check | --php-floor | --write | --sheets <dir>', file=sys.stderr)
     return 2
 
 

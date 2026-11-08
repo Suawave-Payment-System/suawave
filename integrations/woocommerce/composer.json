@@ -3,7 +3,7 @@
     "description": "WooCommerce and WordPress stablecoin payment plugin with RSA-signed callbacks.",
     "type": "wordpress-plugin",
     "require": {
-        "php": ">=8.1",
+        "php": ">=8.3",
         "ext-bcmath": "*",
         "ext-openssl": "*"
     },

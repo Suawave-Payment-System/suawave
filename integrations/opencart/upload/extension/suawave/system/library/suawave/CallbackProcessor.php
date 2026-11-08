@@ -67,6 +67,7 @@ final class CallbackProcessor
         }
         if (Decimal::compare($received, $record->amount) < 0) {
             $this->store->save($record->with($received, $record->status));
+            $this->orders->addNote($record->orderId, 'Suawave partial deposit confirmed: received ' . $event['value_coin'] . ', total received ' . $received . ' of ' . $record->amount . ', outstanding ' . Decimal::subtract($record->amount, $received) . $event['txid'] . '.');
             return CallbackOutcome::acknowledged('underpaid');
         }
         $payable = $this->orders->currentPayable($record->orderId);
@@ -75,7 +76,7 @@ final class CallbackProcessor
             $this->orders->addNote($record->orderId, 'Suawave payment of ' . $received . ' received for a quote of ' . $record->amount . ' that no longer matches the order total. The order was not marked paid, review it manually.');
             return CallbackOutcome::acknowledged('order_changed');
         }
-        $this->orders->markPaid($record->orderId, 'Suawave payment confirmed, received ' . $received . ' of ' . $record->amount);
+        $this->orders->markPaid($record->orderId, 'Suawave payment completed: received ' . $event['value_coin'] . ', total received ' . $received . ' of ' . $record->amount . $event['txid'] . '.');
         $this->store->save($record->with($received, PaymentRecord::PAID));
         return CallbackOutcome::acknowledged('paid');
     }
@@ -110,6 +111,7 @@ final class CallbackProcessor
             'coin' => $fields['coin'],
             'pending' => $fields['pending'],
             'value_coin' => $valueCoin,
+            'txid' => isset($fields['txid_in']) && $fields['txid_in'] !== '' ? ', transaction ' . $fields['txid_in'] : '',
         ];
     }
 

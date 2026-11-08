@@ -6,14 +6,14 @@ Targets OpenCart 4.0.2.x. See "OpenCart 3.x" at the end for what differs.
 
 ## Requirements
 
-- OpenCart 4.0.2.x on PHP 8.1 or newer with the `bcmath`, `curl`, `openssl` and `json` extensions.
+- OpenCart 4.0.2.x on PHP 8.3 or newer with the `bcmath`, `curl`, `openssl` and `json` extensions.
 - A gateway public API base URL (the host that serves `/{ticker}/create/` and `/pubkey/`) and a payout address that receives the funds.
 - A shop reachable over `https` from the internet (the gateway only calls public `https` callback URLs).
 - No composer packages are needed at runtime.
 
 ## Install
 
-1. Copy the folder `upload/extension/suawave` to `extension/suawave` in your OpenCart root, so that `extension/suawave/install.json` exists. Alternatively run `make integrations-package` in the repository root and upload `dist/integrations/suawave.ocmod.zip` (`install.json` at its root, code under `upload/`) with Extensions > Installer.
+1. Run `make integrations-package` in the repository root and upload `dist/integrations/suawave.ocmod.zip` with Extensions > Installer (`install.json`, `admin/`, `catalog/` and `system/` at the zip root; the file name must stay `suawave.ocmod.zip` because OpenCart derives the extension code from it). Copying the folder into `extension/` by hand does not work: OpenCart 4 lists only extensions registered by the Installer.
 2. In the admin go to Extensions > Extensions, choose "Payments", find "Suawave" and click Install. This creates the tables `suawave_payment` and `suawave_event`. Then click Edit.
 3. Grant your admin user group access to `extension/suawave/payment/suawave` (System > Users > User Groups) if the Edit page says you lack permission.
 
@@ -37,7 +37,7 @@ The page shows the callback endpoint of your shop (`index.php?route=extension/su
 
 1. The customer picks "Pay with Suawave" and clicks the button. The extension converts the order total to a decimal string with 2 places using `bcmath` (no floats anywhere), calls `GET {base}/{ticker}/create/?callback=...&address=<payout>&pending=1`, and stores the address, amount, nonce and expected callback in `suawave_payment`. The order gets your "waiting" status. Clicking again for the same amount reuses the stored address. A different amount creates a new address.
 2. The page shows the amount, the address and a QR code containing the deposit address. The QR code is drawn in the browser by the bundled `qrcode.js`. Nothing is sent to a QR service.
-3. The gateway calls your callback URL. A `pending=1` callback only records "detected" and shows a message. It never marks the order paid. A `pending=0` callback adds `value_coin` to the amount received. When the sum reaches the order amount, the order gets your "paid" status through `model_checkout_order->addHistory()`. A smaller deposit leaves the order waiting and later deposits add up. A larger deposit also counts as paid.
+3. The gateway calls your callback URL. A `pending=1` callback only records "detected" and shows a message. It never marks the order paid. A `pending=0` callback adds `value_coin` to the amount received. When the sum reaches the order amount, the order gets your "paid" status through `model_checkout_order->addHistory()`. A smaller deposit leaves the order waiting and adds an order history entry (amount received, outstanding, transaction hash); later deposits add up, and the completing deposit adds the final entry with the total. A larger deposit also counts as paid.
 4. The checkout page polls a local status endpoint (it reads your database only) and goes to the success page once the order is paid. The browser can never mark an order paid.
 
 ## Callback verification

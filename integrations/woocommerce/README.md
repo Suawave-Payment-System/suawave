@@ -4,7 +4,7 @@ A WooCommerce payment gateway (also usable from plain WordPress) that takes stab
 
 ## Requirements
 
-- WordPress 6.0 or newer, PHP 8.1 or newer with the `bcmath` and `openssl` extensions.
+- WordPress 6.0 or newer, PHP 8.3 or newer with the `bcmath` and `openssl` extensions.
 - WooCommerce 8 or newer for the checkout gateway. Plain WordPress works without it (see the end).
 - Your site must be reachable by the gateway over HTTPS (HTTP only against a mock gateway), and your gateway must have public mode enabled.
 

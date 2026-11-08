@@ -7,7 +7,6 @@
                 <model>Suawave\Payment\Model\Payment\Suawave</model>
                 <title>Pay with Suawave</title>
                 <order_status>pending</order_status>
-                <payment_action>order</payment_action>
                 <allowspecific>0</allowspecific>
                 <api_base_url>https://api.suawave.com</api_base_url>
                 <ticker>trc20/usdt</ticker>

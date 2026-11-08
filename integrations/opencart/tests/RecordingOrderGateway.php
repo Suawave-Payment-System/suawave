@@ -13,6 +13,7 @@ final class RecordingOrderGateway implements OrderGateway
     public bool $failNext = false;
     public array $quotes = [];
     public array $notes = [];
+    public array $paidComments = [];
 
     public function markPaid(int $orderId, string $comment): void
     {
@@ -21,6 +22,7 @@ final class RecordingOrderGateway implements OrderGateway
             throw new RuntimeException('order history failed');
         }
         $this->paidOrders[] = $orderId;
+        $this->paidComments[] = $comment;
     }
 
     public function addNote(int $orderId, string $comment): void

@@ -95,6 +95,24 @@ final class CallbackProcessorTest extends TestCase
         $this->assertSame([1001], $this->orders->paidOrders);
     }
 
+    public function testPartialDepositAddsOneHistoryEntryAndCompletingOneAddsTheFinalEntry(): void
+    {
+        $this->processor->process($this->signedGet($this->confirmed('uuid-1', '40.000000') . '&txid_in=abc'));
+        $this->assertCount(1, $this->orders->notes);
+        $this->assertSame(1001, $this->orders->notes[0][0]);
+        $this->assertStringContainsString('received 40.000000', $this->orders->notes[0][1]);
+        $this->assertStringContainsString('outstanding 60.000000', $this->orders->notes[0][1]);
+        $this->assertStringContainsString('transaction abc', $this->orders->notes[0][1]);
+        $this->assertSame([], $this->orders->paidOrders);
+        $this->assertSame([], $this->orders->paidComments);
+
+        $this->processor->process($this->signedGet($this->confirmed('uuid-2', '60.000000') . '&txid_in=def'));
+        $this->assertCount(1, $this->orders->notes);
+        $this->assertSame([1001], $this->orders->paidOrders);
+        $this->assertStringContainsString('total received 100.000000 of 100.00', $this->orders->paidComments[0]);
+        $this->assertStringContainsString('transaction def', $this->orders->paidComments[0]);
+    }
+
     public function testOverpaymentMarksPaid(): void
     {
         $this->processor->process($this->signedGet($this->confirmed('uuid-1', '120.500000')));

@@ -6,7 +6,7 @@ Written against PrestaShop 8.1 and 1.7.8 (module declares a minimum of 1.7.7.0).
 
 ## Requirements
 
-- PrestaShop 8.1.x or 1.7.8.x on PHP 8.1 or newer with the `bcmath`, `curl`, `openssl` and `json` extensions.
+- PrestaShop 8.1.x or 1.7.8.x on PHP 8.3 or newer with the `bcmath`, `curl`, `openssl` and `json` extensions.
 - A gateway public API base URL (the host that serves `/{ticker}/create/` and `/pubkey/`) and a payout address that receives the funds.
 - A shop reachable over `https` from the internet. The gateway only calls public callback URLs, and it cannot reach a shop that is in maintenance mode.
 - MySQL with InnoDB (the module creates its tables as InnoDB, the per-order lock needs it).
