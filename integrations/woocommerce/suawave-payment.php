@@ -28,6 +28,7 @@ Suawave\CallbackEndpoint::register();
 add_action('before_woocommerce_init', static function (): void {
     if (class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil')) {
         \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('cart_checkout_blocks', __FILE__, true);
     }
 });
 
@@ -38,6 +39,15 @@ add_action('plugins_loaded', static function (): void {
     add_filter('woocommerce_payment_gateways', static function (array $gateways): array {
         $gateways[] = Suawave\WooGateway::class;
         return $gateways;
+    });
+});
+
+add_action('woocommerce_blocks_loaded', static function (): void {
+    if (!class_exists('\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType')) {
+        return;
+    }
+    add_action('woocommerce_blocks_payment_method_type_registration', static function ($registry): void {
+        $registry->register(new Suawave\WooBlocks(__FILE__));
     });
 });
 

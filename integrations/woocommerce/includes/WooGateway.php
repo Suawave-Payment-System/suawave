@@ -10,13 +10,15 @@ if (!defined('ABSPATH')) {
 
 final class WooGateway extends \WC_Payment_Gateway
 {
+    public const SUPPORTS = ['products'];
+
     public function __construct()
     {
         $this->id = WooOrderStore::GATEWAY_ID;
         $this->method_title = 'Suawave payment';
         $this->method_description = 'Accept stablecoin payments through your payment gateway. Orders are marked paid only from a signed callback.';
         $this->has_fields = false;
-        $this->supports = ['products'];
+        $this->supports = self::SUPPORTS;
         $this->init_form_fields();
         $this->init_settings();
         $this->title = $this->get_option('title');
@@ -100,7 +102,9 @@ final class WooGateway extends \WC_Payment_Gateway
         $order->update_status('on-hold', 'Waiting for the crypto deposit.');
         $order->save();
         wc_reduce_stock_levels($order->get_id());
-        WC()->cart->empty_cart();
+        if (function_exists('WC') && WC()->cart !== null) {
+            WC()->cart->empty_cart();
+        }
         return ['result' => 'success', 'redirect' => $this->get_return_url($order)];
     }
 
