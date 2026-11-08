@@ -1,0 +1,81 @@
+<div id="suawave-payment">
+  <div class="text-end">
+    <button type="button" id="suawave-pay" class="btn btn-primary">{{ text_pay }}</button>
+  </div>
+  <div id="suawave-alert" class="alert alert-danger d-none"></div>
+  <div id="suawave-details" class="d-none mt-3">
+    <p>{{ text_instruction }}</p>
+    <dl class="row">
+      <dt class="col-sm-3">{{ text_amount }}</dt>
+      <dd class="col-sm-9"><span id="suawave-amount"></span></dd>
+      <dt class="col-sm-3">{{ text_asset }}</dt>
+      <dd class="col-sm-9"><span id="suawave-asset"></span></dd>
+      <dt class="col-sm-3">{{ text_address }}</dt>
+      <dd class="col-sm-9"><code id="suawave-address"></code></dd>
+    </dl>
+    <div id="suawave-qr" class="mb-3" style="width: 220px"></div>
+    <p id="suawave-state" class="fw-bold"></p>
+  </div>
+</div>
+<script type="text/javascript" src="{{ qr_script }}"></script>
+<script type="text/javascript">
+(function () {
+  var confirmUrl = '{{ confirm }}'.replace(/&amp;/g, '&');
+  var statusUrl = '{{ status }}'.replace(/&amp;/g, '&');
+  var successUrl = '{{ success }}'.replace(/&amp;/g, '&');
+  var messages = {
+    waiting: {{ text_waiting|json_encode|raw }},
+    detected: {{ text_detected|json_encode|raw }},
+    paid: {{ text_paid|json_encode|raw }}
+  };
+  var button = document.getElementById('suawave-pay');
+  var alertBox = document.getElementById('suawave-alert');
+  var details = document.getElementById('suawave-details');
+  var state = document.getElementById('suawave-state');
+  var timer = null;
+
+  function renderQr(text) {
+    var code = qrcode(0, 'M');
+    code.addData(text);
+    code.make();
+    document.getElementById('suawave-qr').innerHTML = code.createSvgTag(4, 2);
+  }
+
+  function poll() {
+    fetch(statusUrl, { credentials: 'same-origin' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        state.textContent = messages[data.status] || messages.waiting;
+        if (data.status === 'paid') {
+          window.clearInterval(timer);
+          window.location.href = successUrl;
+        }
+      });
+  }
+
+  button.addEventListener('click', function () {
+    button.disabled = true;
+    alertBox.classList.add('d-none');
+    fetch(confirmUrl, { method: 'POST', credentials: 'same-origin' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (data.error) {
+          alertBox.textContent = data.error;
+          alertBox.classList.remove('d-none');
+          button.disabled = false;
+          return;
+        }
+        document.getElementById('suawave-amount').textContent = data.amount;
+        document.getElementById('suawave-asset').textContent = data.asset;
+        document.getElementById('suawave-address').textContent = data.address;
+        renderQr(data.qr_text);
+        state.textContent = messages.waiting;
+        details.classList.remove('d-none');
+        timer = window.setInterval(poll, 5000);
+      })
+      .catch(function () {
+        button.disabled = false;
+      });
+  });
+})();
+</script>

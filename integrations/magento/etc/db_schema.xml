@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="suawave_callback_event" resource="default" engine="innodb" comment="Processed gateway callback events">
+        <column xsi:type="varchar" name="event_uuid" nullable="false" length="64" comment="Gateway event uuid"/>
+        <column xsi:type="varchar" name="order_reference" nullable="false" length="64" comment="Order increment id"/>
+        <column xsi:type="varchar" name="deposit_transaction" nullable="false" length="128" comment="Inbound deposit transaction hash"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="false" comment="Processed at"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="event_uuid"/>
+        </constraint>
+    </table>
+</schema>

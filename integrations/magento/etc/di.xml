@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Suawave\Payment\Core\PublicKeyProvider" type="Suawave\Payment\Model\CachedPublicKeyProvider"/>
+    <preference for="Suawave\Payment\Core\PaymentLedger" type="Suawave\Payment\Model\OrderPaymentLedger"/>
+    <preference for="Suawave\Payment\Core\ProcessedEventStore" type="Suawave\Payment\Model\DatabaseEventStore"/>
+    <preference for="Suawave\Payment\Core\OrderTransaction" type="Suawave\Payment\Model\DatabaseOrderTransaction"/>
+    <preference for="Suawave\Payment\Core\HttpTransport" type="Suawave\Payment\Core\CurlTransport"/>
+</config>

@@ -1,0 +1,1 @@
+https://shop.example/suawave/callback/index?order=000000042&nonce=0123456789abcdef0123456789abcdef&uuid=8c4e2a61-5b3d-47f9-a0e2-1d6c9b7f3e45&address_in=TDepositAddressExample0000000000&txid_in=9f2c1a0e5b7d4c3a8e6f1b2d3c4a5e6f7a8b9c0d1e2f30415263748596a7b8c9&coin=trc20_usdt&pending=0&value_coin=100.000000

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.suawave-payment-system/suawave-mcp",
+  "title": "Suawave",
+  "description": "Create and track stablecoin payments, convert amounts and read the docs of the Suawave API.",
+  "version": "1.0.0",
+  "websiteUrl": "https://suawave.com",
+  "repository": {
+    "url": "https://github.com/Suawave-Payment-System/suawave",
+    "source": "github",
+    "subfolder": "cmd/mcp"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@suawave/mcp",
+      "version": "1.0.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SUAWAVE_MCP_BASE_URL",
+          "description": "API base URL",
+          "isRequired": false,
+          "default": "https://api.suawave.com"
+        },
+        {
+          "name": "SUAWAVE_MCP_KEY",
+          "description": "Merchant API key, enables the merchant tools",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

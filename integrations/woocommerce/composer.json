@@ -1,0 +1,19 @@
+{
+    "name": "suawave/suawave-woocommerce",
+    "description": "WooCommerce and WordPress stablecoin payment plugin with RSA-signed callbacks.",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=8.1",
+        "ext-bcmath": "*",
+        "ext-openssl": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0"
+    },
+    "config": {
+        "optimize-autoloader": true
+    },
+    "scripts": {
+        "test": "phpunit"
+    }
+}

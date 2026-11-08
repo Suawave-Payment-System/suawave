@@ -1,0 +1,40 @@
+{
+  "name": "@suawave/mcp",
+  "version": "1.0.0",
+  "mcpName": "io.github.suawave-payment-system/suawave-mcp",
+  "description": "Model Context Protocol server for the Suawave API. A launcher that installs the suawave-mcp binary.",
+  "keywords": ["mcp", "model-context-protocol", "suawave", "crypto", "payments", "stablecoin"],
+  "homepage": "https://suawave.com/docs",
+  "bugs": {
+    "url": "https://github.com/Suawave-Payment-System/suawave/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suawave-Payment-System/suawave.git",
+    "directory": "cmd/mcp/npm"
+  },
+  "author": "Suawave (https://suawave.com)",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "suawave-mcp": "bin/suawave-mcp.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node lib/install.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

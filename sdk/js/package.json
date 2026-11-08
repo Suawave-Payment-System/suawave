@@ -1,0 +1,76 @@
+{
+  "name": "@suawave/gateway-client",
+  "version": "1.0.0",
+  "description": "TypeScript client for the Suawave API with callback signature verification.",
+  "keywords": [
+    "suawave",
+    "crypto",
+    "stablecoin",
+    "payments",
+    "usdt",
+    "webhook",
+    "signature"
+  ],
+  "homepage": "https://suawave.com/docs",
+  "bugs": {
+    "url": "https://github.com/Suawave-Payment-System/suawave/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Suawave-Payment-System/suawave.git",
+    "directory": "sdk/js"
+  },
+  "author": "Suawave (https://suawave.com)",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./verify": {
+      "import": {
+        "types": "./dist/esm/verify.d.ts",
+        "default": "./dist/esm/verify.js"
+      },
+      "require": {
+        "types": "./dist/cjs/verify.d.ts",
+        "default": "./dist/cjs/verify.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "npm run clean && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/mark-cjs.mjs",
+    "pretest": "node scripts/clean.mjs .test-build && tsc -p tsconfig.test.json",
+    "test": "node --test \".test-build/test/*.test.js\"",
+    "e2e": "node scripts/e2e.mjs",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

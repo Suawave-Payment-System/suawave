@@ -1,0 +1,22 @@
+<?php
+
+declare(strict_types=1);
+
+$details = $block->details();
+if ($details === null) {
+    return;
+}
+?>
+<div class="suawave-instructions">
+    <h2><?= $escaper->escapeHtml(__('Complete your crypto payment')) ?></h2>
+    <p>
+        <?= $escaper->escapeHtml(__('Send exactly')) ?>
+        <strong><?= $escaper->escapeHtml($details['amount']) ?> <?= $escaper->escapeHtml(strtoupper($details['ticker'])) ?></strong>
+        <?= $escaper->escapeHtml(__('to this address:')) ?>
+    </p>
+    <p><code><?= $escaper->escapeHtml($details['address']) ?></code></p>
+    <?php if ($details['qr'] !== null): ?>
+        <p><img src="<?= $escaper->escapeHtmlAttr($details['qr']) ?>" width="256" height="256" alt="<?= $escaper->escapeHtmlAttr(__('Payment QR code')) ?>"/></p>
+    <?php endif; ?>
+    <p><?= $escaper->escapeHtml(__('Your order is marked as paid automatically once the network confirms the transfer.')) ?></p>
+</div>

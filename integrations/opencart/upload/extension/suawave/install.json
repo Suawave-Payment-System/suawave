@@ -1,0 +1,7 @@
+{
+  "name": "Suawave",
+  "description": "Accept stablecoin payments such as USDT in OpenCart. An order is paid only after a signed callback verifies.",
+  "version": "1.0.0",
+  "author": "Suawave",
+  "link": "https://suawave.com"
+}

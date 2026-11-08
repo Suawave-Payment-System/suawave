@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <payment>
+            <suawave>
+                <active>0</active>
+                <model>Suawave\Payment\Model\Payment\Suawave</model>
+                <title>Pay with Suawave</title>
+                <order_status>pending</order_status>
+                <payment_action>order</payment_action>
+                <allowspecific>0</allowspecific>
+                <api_base_url>https://api.suawave.com</api_base_url>
+                <ticker>trc20/usdt</ticker>
+                <payout_address></payout_address>
+                <external_origin></external_origin>
+                <sort_order>50</sort_order>
+            </suawave>
+        </payment>
+    </default>
+</config>
