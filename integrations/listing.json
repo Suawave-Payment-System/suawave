@@ -34,15 +34,22 @@
         "a": "You choose the asset and chain in the settings, for example `trc20/usdt` on TRON or `bep20/usdt` on BNB Smart Chain."
       }
     ],
-    "tags": ["crypto", "stablecoin", "payments", "usdt"],
+    "tags": [
+      "crypto",
+      "stablecoin",
+      "payments",
+      "usdt"
+    ],
     "changelog": [
       {
         "version": "1.0.0",
-        "notes": ["First release."]
+        "notes": [
+          "First release."
+        ]
       }
     ],
     "support_email": "support@suawave.com",
-    "support_url": "https://suawave.com/support",
+    "support_url": "https://suawave.com/docs",
     "docs_url": "https://suawave.com/docs",
     "website_url": "https://suawave.com"
   },
@@ -86,7 +93,13 @@
           "a": "The callback is a signed server-to-server request from the API, not a form of a logged-in user. The RSA signature in the `x-ca-signature` header authenticates it instead."
         }
       ],
-      "tags": ["crypto", "stablecoin", "payments", "woocommerce", "usdt"]
+      "tags": [
+        "crypto",
+        "stablecoin",
+        "payments",
+        "woocommerce",
+        "usdt"
+      ]
     },
     "woocommerce_composer": {
       "description": "WooCommerce and WordPress stablecoin payment plugin with RSA-signed callbacks."
@@ -99,17 +112,32 @@
         "The order is invoiced and moves to `processing` only after the Suawave API sends a signed, confirmed callback that the module has verified.",
         "The module uses the public Suawave API. No account, API key or shared secret is needed."
       ],
-      "tags": ["payment", "crypto", "stablecoin", "usdt"]
+      "tags": [
+        "payment",
+        "crypto",
+        "stablecoin",
+        "usdt"
+      ]
     },
     "prestashop": {
       "title": "Suawave",
       "short": "Accept stablecoin payments such as USDT in PrestaShop. An order is paid only after a signed callback verifies.",
-      "tags": ["payment", "crypto", "stablecoin", "usdt"]
+      "tags": [
+        "payment",
+        "crypto",
+        "stablecoin",
+        "usdt"
+      ]
     },
     "opencart": {
       "title": "Suawave",
       "short": "Accept stablecoin payments such as USDT in OpenCart. An order is paid only after a signed callback verifies.",
-      "tags": ["payment", "crypto", "stablecoin", "usdt"]
+      "tags": [
+        "payment",
+        "crypto",
+        "stablecoin",
+        "usdt"
+      ]
     },
     "npm_js": {
       "title": "@suawave/gateway-client",
@@ -119,7 +147,15 @@
         "Every amount is a decimal string. The client rejects a number before it sends anything.",
         "It has zero runtime dependencies and ships ESM and CommonJS builds with type declarations. It runs on Node 20 or newer and in browsers."
       ],
-      "tags": ["suawave", "crypto", "stablecoin", "payments", "usdt", "webhook", "signature"]
+      "tags": [
+        "suawave",
+        "crypto",
+        "stablecoin",
+        "payments",
+        "usdt",
+        "webhook",
+        "signature"
+      ]
     },
     "npm_mcp": {
       "title": "@suawave/mcp",
@@ -128,7 +164,14 @@
         "The package is a launcher for the Model Context Protocol server of the Suawave API. On install it downloads the prebuilt `suawave-mcp` binary for your platform from the GitHub release and checks its SHA-256 against the release `SHA256SUMS`.",
         "The server creates and tracks stablecoin payments, converts amounts and reads the API documentation. The merchant tools turn on when you set an API key."
       ],
-      "tags": ["mcp", "model-context-protocol", "suawave", "crypto", "payments", "stablecoin"]
+      "tags": [
+        "mcp",
+        "model-context-protocol",
+        "suawave",
+        "crypto",
+        "payments",
+        "stablecoin"
+      ]
     },
     "mcp_registry": {
       "title": "Suawave",

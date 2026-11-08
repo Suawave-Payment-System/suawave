@@ -110,6 +110,6 @@ You choose the asset and chain in the settings, for example `trc20/usdt` on TRON
 
 - 📖 Documentation: https://suawave.com/docs
 - 🌐 Website: https://suawave.com
-- 💬 Support: support@suawave.com
+- 💬 Support: support@suawave.com (help pages at https://suawave.com/docs)
 
 <p align="center"><sub>Built by Suawave. The gateway itself is a separate, private service; this repository holds everything a merchant or developer installs.</sub></p>
