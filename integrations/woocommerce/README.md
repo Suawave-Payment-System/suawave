@@ -10,7 +10,7 @@ A WooCommerce payment gateway (also usable from plain WordPress) that takes stab
 
 ## Install
 
-1. Run `make integrations-package` in the repository root and take `dist/integrations/suawave-payment.zip`; it contains `suawave-payment/suawave-payment.php`, `readme.txt` and `includes/` only. The plugin has no runtime dependencies. The wordpress.org images are in `.wordpress-org/`.
+1. Run `make integrations-package` in the repository root and take `dist/integrations/suawave-payment.zip`; it contains `suawave-payment/suawave-payment.php`, `readme.txt`, `includes/` and `assets/blocks.js` only. The plugin has no runtime dependencies. The wordpress.org images are in `.wordpress-org/`.
 2. WordPress admin, Plugins, Add New, Upload Plugin. Activate it.
 3. WooCommerce, Settings, Payments, Suawave payment.
 
@@ -30,11 +30,20 @@ The gateway only shows at checkout when the API URL, payout address and a valid 
 ## What happens
 
 1. The customer places the order. The plugin calls `GET {base}/{ticker}/create/` with your payout address and a callback URL of the form `https://shop.example/?suawave_callback=1&src=woo&order=<id>&nonce=<random>` and `pending=1`. It checks the order amount against the minimum deposit the gateway returns and refuses a smaller order.
-2. The order goes on hold. The thank-you page and the order email show the amount, the address, the network, the minimum deposit and a QR code.
+2. The order goes on hold. The thank-you page, the order detail page in the customer account and the order email (HTML and plain text) show the amount, the address, the network, the minimum deposit, the payment deadline and a QR code.
 3. The gateway calls the callback URL for each deposit. The plugin verifies `x-ca-signature` first, then handles the event:
    - Pending callback (`pending=1`): adds a note only. The order is never marked paid from it.
    - Confirmed callback (`pending=0`): adds `value_coin` to the amount received so far. When the total reaches the order amount the order is paid with WooCommerce `payment_complete`. A smaller payment leaves the order on hold with a note, and a later deposit (it has its own `uuid`) tops it up.
 4. The plugin answers `200` with `*ok*`.
+
+## Payment window
+
+The gateway answers the create call with `expires_at`; the plugin stores it with the order (`_suawave_expires_at`) and shows it in the shop timezone. Once it passes, every surface (thank-you page, order detail page, HTML and plain-text email) shows "payment window closed" with the order number instead of the address and QR code; a paid order shows "Payment received" and never the address. The address stays on the order so an on-time deposit that the gateway finalizes after the deadline still matches.
+
+- When the window closes without a confirmed payment (a single cron event at the deadline, also checked whenever the instructions render), the plugin adds one note for that attempt and moves the order from on hold to pending payment, which releases its stock and makes the customer's Pay link reach the gateway again. If a deposit was already detected on that attempt the order stays on hold with a note instead. WooCommerce's "Hold stock" setting cancels pending orders that stay unpaid longer than its limit.
+- Paying again issues a new attempt with a new nonce and a new deposit address. The previous attempt is kept on the order as superseded (`_suawave_previous_attempts`). Supersession runs in the same locked transaction as the callbacks, and a renewal is abandoned when the order was paid in the meantime.
+- Callbacks take the order lock first, then match the nonce and `address_in` to an attempt of the order (current or superseded). Inside the lock every decision (attempt match, paid state, expiry note, renewal) uses a fresh read: the order object cache, the post cache and the HPOS datastore caches (`orders_data`, `orders_meta`, through `OrdersTableDataStore::clear_cached_data` and, because that skips the meta cache when no `orders_data` entry existed, `OrdersTableDataStoreMeta::clear_cached_data` directly) are cleared and its meta is read with `read_meta_data(true)`; reads before the lock only decide whether to try. While the order is unpaid, a confirmed deposit to any of its attempts counts and can pay it; the paying attempt is recorded (`_suawave_paid_nonce`, `_suawave_paid_address`). Once the order is paid, every further confirmed callback, for any attempt, only adds a note ("payment received on a previous attempt, reconcile") and never changes the status; a paid order is never paid again, renewed or returned to on hold.
+- All plugin meta keys start with an underscore, so WordPress treats them as protected: they are not shown to customers or in the custom fields box. The WooCommerce order REST API that serializes order meta needs shop staff credentials.
 
 Only a confirmed callback pays an order. Nothing the browser sends (return URL, query string) changes an order.
 
@@ -49,7 +58,7 @@ Only a confirmed callback pays an order. Nothing the browser sends (return URL, 
 
 ## Money handling
 
-Amounts are decimal strings from the order total to the gateway call to the callback. Comparison and addition use `bcmath` on strings. No PHP float, `floatval` or `number_format` touches an amount.
+Amounts are decimal strings from the order total to the gateway call to the callback. Comparison and addition use `bcmath` on strings. No PHP float, `floatval` or `number_format` touches an amount. A USDT or USDC amount and the minimum deposit are shown rounded up to 6 decimals (never half up) on the thank-you page, the order page and both emails, and the QR code request carries the same shown amount, so a customer who pays it always covers the stored amount (for example a converted `12.011183118544993788` shows as `12.011184`); the callback is matched against the exact stored amount. Received totals and order notes show exact values without trailing zeros.
 
 ## QR code
 

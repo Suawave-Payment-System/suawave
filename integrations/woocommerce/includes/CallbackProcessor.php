@@ -21,16 +21,12 @@ final class CallbackProcessor
         if (!is_string($orderId) || $orderId === '' || !is_string($nonce) || $nonce === '') {
             return CallbackResult::rejected(400, 'missing order reference');
         }
-        $order = $this->orders->load($orderId);
-        if ($order === null || !hash_equals($order->nonce, $nonce)) {
-            return CallbackResult::rejected(404, 'unknown order');
-        }
-        $invalid = $this->validate($order, $signedFields);
-        if ($invalid !== null) {
-            return $invalid;
+        $malformed = self::checkShape($signedFields);
+        if ($malformed !== null) {
+            return $malformed;
         }
         try {
-            return $this->lock->transactional(self::lockKey($query, $orderId), fn (Totals $totals): array => $this->applyLocked($orderId, $order, $signedFields, $totals));
+            return $this->lock->transactional(self::lockKey($query, $orderId), fn (Totals $totals): array => $this->applyLocked($orderId, $nonce, $signedFields, $totals));
         } catch (LockUnavailable $busy) {
             return CallbackResult::rejected(503, 'order busy');
         } catch (\Throwable $failure) {
@@ -48,7 +44,7 @@ final class CallbackProcessor
         return self::sourceOf($query) === 'wp' ? 'wp_' . $orderId : $orderId;
     }
 
-    private function validate(OrderRecord $order, array $fields): ?CallbackResult
+    private static function checkShape(array $fields): ?CallbackResult
     {
         foreach (['uuid', 'address_in', 'coin', 'pending', 'txid_in'] as $name) {
             if (!isset($fields[$name]) || !is_string($fields[$name]) || $fields[$name] === '') {
@@ -61,9 +57,6 @@ final class CallbackProcessor
         if (!in_array($fields['pending'], ['0', '1'], true)) {
             return CallbackResult::rejected(400, 'invalid pending flag');
         }
-        if ($fields['address_in'] !== $order->addressIn || $fields['coin'] !== $order->coin) {
-            return CallbackResult::rejected(400, 'callback does not match the order');
-        }
         if ($fields['pending'] === '0') {
             $value = $fields['value_coin'] ?? '';
             if (!is_string($value) || !Money::isPositive($value)) {
@@ -73,25 +66,39 @@ final class CallbackProcessor
         return null;
     }
 
-    private function applyLocked(string $orderId, OrderRecord $order, array $fields, Totals $totals): array
+    private function applyLocked(string $orderId, string $nonce, array $fields, Totals $totals): array
     {
+        $order = $this->orders->load($orderId, $nonce);
+        if ($order === null) {
+            return [CallbackResult::rejected(404, 'unknown order'), $totals];
+        }
+        if ($fields['address_in'] !== $order->addressIn || $fields['coin'] !== $order->coin) {
+            return [CallbackResult::rejected(400, 'callback does not match the order'), $totals];
+        }
         if (!$this->ledger->claim(strtolower($fields['uuid']))) {
             return [CallbackResult::acknowledged(), $totals];
         }
         if ($fields['pending'] === '1') {
-            $this->orders->recordPending($orderId, $fields['txid_in']);
+            if (!$totals->paid) {
+                $this->orders->recordPending($orderId, $fields['txid_in']);
+            }
+            return [CallbackResult::acknowledged(), $totals];
+        }
+        if ($totals->paid) {
+            $this->orders->recordAfterPaid($orderId, $order->addressIn, $fields['txid_in'], $fields['value_coin']);
             return [CallbackResult::acknowledged(), $totals];
         }
         $received = Money::add($totals->received, $fields['value_coin']);
-        $becomesPaid = !$totals->paid && Money::compare($received, $order->amount) >= 0;
+        $becomesPaid = Money::compare($received, $order->amount) >= 0;
         $this->orders->recordDeposit(
             $orderId,
+            $order,
             $fields['txid_in'],
             is_string($fields['txid_out'] ?? null) ? $fields['txid_out'] : '',
             $fields['value_coin'],
             $received,
             $becomesPaid
         );
-        return [CallbackResult::acknowledged(), new Totals($received, [...$totals->txids, $fields['txid_in']], $totals->paid || $becomesPaid)];
+        return [CallbackResult::acknowledged(), new Totals($received, [...$totals->txids, $fields['txid_in']], $becomesPaid)];
     }
 }

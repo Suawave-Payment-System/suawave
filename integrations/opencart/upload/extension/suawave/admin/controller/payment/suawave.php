@@ -42,6 +42,9 @@ class Suawave extends \Opencart\System\Engine\Controller
         foreach (self::SETTING_KEYS as $key) {
             $data['payment_suawave_' . $key] = $this->config->get('payment_suawave_' . $key);
         }
+        $statuses = $this->statusDefaults();
+        $data['payment_suawave_pending_status_id'] = $statuses['pending_status_id'];
+        $data['payment_suawave_paid_status_id'] = $statuses['paid_status_id'];
         if ($data['payment_suawave_base_url'] === null) {
             $data['payment_suawave_base_url'] = 'https://api.suawave.com';
         }
@@ -107,6 +110,13 @@ class Suawave extends \Opencart\System\Engine\Controller
             $post['payment_suawave_base_url'] = $baseUrl;
             $post['payment_suawave_public_key'] = $publicKey;
             $post['payment_suawave_external_origin'] = rtrim(trim((string) $post['payment_suawave_external_origin']), '/');
+            $this->load->model('extension/suawave/payment/suawave');
+            $this->model_extension_suawave_payment_suawave->install();
+            foreach ($this->statusDefaults() as $key => $value) {
+                if (trim((string) ($post['payment_suawave_' . $key] ?? '')) === '') {
+                    $post['payment_suawave_' . $key] = $value;
+                }
+            }
             $this->load->model('setting/setting');
             $this->model_setting_setting->editSetting('payment_suawave', $post);
             $json['success'] = $this->language->get('text_success');
@@ -121,7 +131,48 @@ class Suawave extends \Opencart\System\Engine\Controller
         if ($this->user->hasPermission('modify', 'extension/payment')) {
             $this->load->model('extension/suawave/payment/suawave');
             $this->model_extension_suawave_payment_suawave->install();
+            $this->load->model('setting/setting');
+            $stored = $this->model_setting_setting->getSetting('payment_suawave');
+            $missing = false;
+            foreach ($this->statusDefaults() as $key => $value) {
+                if (!isset($stored['payment_suawave_' . $key]) || $stored['payment_suawave_' . $key] === '') {
+                    $stored['payment_suawave_' . $key] = $value;
+                    $missing = true;
+                }
+            }
+            if ($missing) {
+                $this->model_setting_setting->editSetting('payment_suawave', $stored);
+            }
         }
+    }
+
+    protected function statusDefaults(): array
+    {
+        $pending = $this->config->get('payment_suawave_pending_status_id');
+        $paid = $this->config->get('payment_suawave_paid_status_id');
+        if ($pending === null || $pending === '') {
+            $pending = $this->config->get('config_order_status_id');
+        }
+        if ($paid === null || $paid === '') {
+            $paid = $this->processingStatusId();
+        }
+        return [
+            'pending_status_id' => $pending === null || $pending === false ? '' : (string) $pending,
+            'paid_status_id' => $paid === null || $paid === false ? '' : (string) $paid,
+        ];
+    }
+
+    protected function processingStatusId(): mixed
+    {
+        $this->load->model('localisation/order_status');
+        $statuses = $this->model_localisation_order_status->getOrderStatuses();
+        foreach (is_array($statuses) ? $statuses : [] as $status) {
+            if (strcasecmp(trim((string) ($status['name'] ?? '')), 'Processing') === 0) {
+                return $status['order_status_id'];
+            }
+        }
+        $processing = $this->config->get('config_processing_status');
+        return is_array($processing) ? reset($processing) : $processing;
     }
 
     public function uninstall(): void

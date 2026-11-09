@@ -34,6 +34,42 @@ final class Decimal
         return self::isValid($value) && self::compare($value, '0') > 0;
     }
 
+    public static function display(string $value, ?int $places): string
+    {
+        self::require($value);
+        $scale = self::scaleOf($value);
+        if ($places !== null && $scale > $places) {
+            $shown = bcadd($value, '0', $places);
+            if (bccomp($shown, $value, $scale) < 0) {
+                $shown = bcadd($shown, $places === 0 ? '1' : '0.' . str_repeat('0', $places - 1) . '1', $places);
+            }
+            $value = $shown;
+        }
+        return self::trimmed($value);
+    }
+
+    public static function plain(string $value): string
+    {
+        self::require($value);
+        return self::trimmed($value);
+    }
+
+    public static function displayPlaces(string $ticker): ?int
+    {
+        $symbol = strtolower(substr($ticker, (int) strpos($ticker, '/') + 1));
+        return in_array($symbol, ['usdt', 'usdc'], true) ? 6 : null;
+    }
+
+    private static function trimmed(string $value): string
+    {
+        if (strpos($value, '.') === false) {
+            return $value;
+        }
+        $value = rtrim($value, '0');
+        $digits = self::scaleOf($value);
+        return $digits < 2 ? $value . str_repeat('0', 2 - $digits) : $value;
+    }
+
     private static function scaleOf(string $value): int
     {
         $position = strpos($value, '.');

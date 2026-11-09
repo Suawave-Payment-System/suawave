@@ -10,10 +10,14 @@ use Suawave\CheckoutService;
 use Suawave\CurlTransport;
 use Suawave\Decimal;
 use Suawave\GatewayClient;
-use Suawave\GatewayException;
+use Suawave\HttpTransport;
 use Suawave\InvalidPublicKey;
 use Suawave\OpenCartOrderGateway;
+use Suawave\ExpiryNotifier;
 use Suawave\OpenCartPaymentStore;
+use Suawave\PaymentPage;
+use Suawave\PaymentStore;
+use Suawave\PaymentRecord;
 use Suawave\SignatureVerifier;
 use Throwable;
 
@@ -24,6 +28,7 @@ class Suawave extends \Opencart\System\Engine\Controller
     public function index(): string
     {
         $this->load->language('extension/suawave/payment/suawave');
+        $this->sweepExpired();
         $data['confirm'] = $this->url->link('extension/suawave/payment/suawave.confirm', 'language=' . $this->config->get('config_language'));
         $data['status'] = $this->url->link('extension/suawave/payment/suawave.status', 'language=' . $this->config->get('config_language'));
         $data['success'] = $this->url->link('checkout/success', 'language=' . $this->config->get('config_language'));
@@ -53,16 +58,14 @@ class Suawave extends \Opencart\System\Engine\Controller
         if (!$json) {
             try {
                 $amount = Decimal::fromOrderTotal($amounts['total'], $amounts['currency_value'], self::AMOUNT_PLACES);
-                $record = $this->checkoutService()->begin($orderId, $amount);
-                if ($amounts['order_status_id'] === 0) {
-                    $this->load->model('checkout/order');
-                    $this->model_checkout_order->addHistory($orderId, (int) $this->config->get('payment_suawave_pending_status_id'), '', false);
-                }
-                $json['amount'] = $record->amount;
-                $json['address'] = $record->addressIn;
-                $json['asset'] = $record->ticker;
-                $json['qr_text'] = $record->addressIn;
-            } catch (GatewayException | \InvalidArgumentException $failure) {
+                $page = $this->paymentPage();
+                $record = $this->checkoutService()->begin(
+                    $orderId,
+                    $amount,
+                    fn (PaymentRecord $attempt, bool $replaced) => $this->recordAttemptHistory($orderId, $attempt, $replaced, $page)
+                );
+                $json = $page->confirmPayload($record, time());
+            } catch (\RuntimeException | \InvalidArgumentException $failure) {
                 $this->log->write('suawave: ' . $failure->getMessage());
                 $json['error'] = $this->language->get('error_gateway');
             }
@@ -75,13 +78,16 @@ class Suawave extends \Opencart\System\Engine\Controller
     public function status(): void
     {
         $orderId = (int) ($this->session->data['order_id'] ?? 0);
-        $json = ['status' => 'unknown'];
+        $record = null;
         if ($orderId > 0) {
-            $record = $this->paymentStore()->findByOrderId($orderId);
-            if ($record !== null) {
-                $json['status'] = $record->status;
+            $this->sweepExpired();
+            $store = $this->paymentStore();
+            $record = $store->findPaidByOrderId($orderId) ?? $store->findByOrderId($orderId);
+            if ($record !== null && $record->isOverdue(time())) {
+                $this->expiryNotifier()->noteIfDue($record, time());
             }
         }
+        $json = $this->paymentPage()->statusPayload($record, time());
         $this->response->addHeader('Content-Type: application/json');
         $this->response->setOutput(json_encode($json));
     }
@@ -118,6 +124,69 @@ class Suawave extends \Opencart\System\Engine\Controller
         $this->respond($outcome->httpStatus, $outcome->body);
     }
 
+    private function recordAttemptHistory(int $orderId, PaymentRecord $attempt, bool $replaced, PaymentPage $page): void
+    {
+        if ($attempt->status === PaymentRecord::PAID) {
+            return;
+        }
+        $this->load->model('extension/suawave/payment/suawave');
+        $order = $this->model_extension_suawave_payment_suawave->getOrderAmounts($orderId);
+        if ($order === null || $order['order_status_id'] === (int) $this->config->get('payment_suawave_paid_status_id')) {
+            return;
+        }
+        $comment = $page->historyComment($attempt);
+        $this->load->model('checkout/order');
+        if ($order['order_status_id'] === 0) {
+            $this->model_checkout_order->addHistory($orderId, (int) $this->config->get('payment_suawave_pending_status_id'), $comment, $comment !== '');
+        } elseif ($replaced && $comment !== '') {
+            $this->model_checkout_order->addHistory($orderId, $order['order_status_id'], $comment, true);
+        }
+    }
+
+    private function paymentPage(): PaymentPage
+    {
+        $this->load->language('extension/suawave/payment/suawave');
+        $texts = [];
+        foreach (['text_pay_before', 'text_closed'] as $key) {
+            $texts[$key] = $this->language->get($key);
+        }
+        $zone = (string) $this->config->get('config_timezone');
+        try {
+            $timezone = new \DateTimeZone($zone !== '' ? $zone : 'UTC');
+        } catch (\Exception) {
+            $timezone = new \DateTimeZone('UTC');
+        }
+        return new PaymentPage($texts, $timezone);
+    }
+
+    private function expiryNotifier(): ExpiryNotifier
+    {
+        $page = $this->paymentPage();
+        $this->load->model('checkout/order');
+        return new ExpiryNotifier(
+            $this->paymentStore(),
+            new OpenCartOrderGateway(
+                $this->model_checkout_order,
+                (int) $this->config->get('payment_suawave_paid_status_id'),
+                $this->db,
+                DB_PREFIX,
+                (string) $this->config->get('payment_suawave_ticker'),
+                (string) $this->config->get('payment_suawave_order_currency'),
+                self::AMOUNT_PLACES
+            ),
+            fn (PaymentRecord $record): string => $page->closedText($record)
+        );
+    }
+
+    private function sweepExpired(): void
+    {
+        try {
+            $this->expiryNotifier()->sweep(time());
+        } catch (\Throwable $failure) {
+            $this->log->write('suawave: expiry sweep failed: ' . $failure->getMessage());
+        }
+    }
+
     private function respond(int $httpStatus, string $body): void
     {
         http_response_code($httpStatus);
@@ -125,9 +194,14 @@ class Suawave extends \Opencart\System\Engine\Controller
         $this->response->setOutput($body);
     }
 
-    private function paymentStore(): OpenCartPaymentStore
+    protected function paymentStore(): PaymentStore
     {
         return new OpenCartPaymentStore($this->db, DB_PREFIX);
+    }
+
+    protected function httpTransport(): HttpTransport
+    {
+        return new CurlTransport();
     }
 
     private function checkoutService(): CheckoutService
@@ -135,7 +209,7 @@ class Suawave extends \Opencart\System\Engine\Controller
         $callbackBase = rtrim((string) $this->config->get('payment_suawave_external_origin'), '/')
             . '/index.php?route=extension/suawave/payment/suawave.callback';
         return new CheckoutService(
-            new GatewayClient((string) $this->config->get('payment_suawave_base_url'), new CurlTransport()),
+            new GatewayClient((string) $this->config->get('payment_suawave_base_url'), $this->httpTransport()),
             $this->paymentStore(),
             (string) $this->config->get('payment_suawave_ticker'),
             (string) $this->config->get('payment_suawave_payout_address'),

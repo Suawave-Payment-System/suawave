@@ -8,6 +8,8 @@ use Throwable;
 
 final class SqlPaymentStore implements PaymentStore
 {
+    private const PAID_FIRST = " ORDER BY `p`.`status` = '" . PaymentRecord::PAID . "' DESC, `p`.`id_payment` DESC";
+
     public function __construct(
         private readonly SqlConnection $db,
         private readonly string $prefix
@@ -16,22 +18,35 @@ final class SqlPaymentStore implements PaymentStore
 
     public function findByCartId(int $cartId): ?PaymentRecord
     {
-        return $this->select('`id_cart` = ' . $cartId . ' ORDER BY `id_payment` DESC', '');
+        return $this->select('`p`.`id_cart` = ' . $cartId . self::PAID_FIRST);
     }
 
     public function findByOrderId(int $orderId): ?PaymentRecord
     {
-        return $this->select('`id_order` = ' . $orderId . ' ORDER BY `id_payment` DESC', '');
+        return $this->select('`p`.`id_order` = ' . $orderId . self::PAID_FIRST);
     }
 
     public function findByAddressIn(string $addressIn): ?PaymentRecord
     {
-        return $this->select('`address_in` = ' . $this->quote($addressIn), '');
+        return $this->select('`p`.`address_in` = ' . $this->quote($addressIn));
     }
 
-    public function lockByAddressIn(string $addressIn): ?PaymentRecord
+    public function lockCart(int $cartId): array
     {
-        return $this->select('`address_in` = ' . $this->quote($addressIn), ' FOR UPDATE');
+        $rows = $this->db->fetchRows(
+            'SELECT * FROM `' . $this->prefix . 'suawave_payment` WHERE `id_cart` = ' . $cartId . ' ORDER BY `id_payment` ASC FOR UPDATE'
+        );
+        return array_map(static fn (array $row): PaymentRecord => self::toRecord($row), $rows);
+    }
+
+    public function findOverdue(int $now): ?PaymentRecord
+    {
+        $table = '`' . $this->prefix . 'suawave_payment`';
+        return $this->select(
+            "`p`.`status` IN ('" . PaymentRecord::AWAITING . "', '" . PaymentRecord::DETECTED . "') AND `p`.`id_order` > 0 AND `p`.`expires_at` IS NOT NULL AND `p`.`expires_at` <= " . $now
+            . ' AND NOT EXISTS (SELECT 1 FROM ' . $table . ' `n` WHERE `n`.`id_cart` = `p`.`id_cart` AND (`n`.`id_payment` > `p`.`id_payment` OR `n`.`status` = \'' . PaymentRecord::PAID . '\'))'
+            . ' ORDER BY `p`.`id_payment` ASC'
+        );
     }
 
     public function save(PaymentRecord $record): void
@@ -48,6 +63,7 @@ final class SqlPaymentStore implements PaymentStore
             . '`minimum` = ' . $this->quote($record->minimum) . ', '
             . '`received` = ' . $this->quote($record->received) . ', '
             . '`status` = ' . $this->quote($record->status) . ', '
+            . '`expires_at` = ' . ($record->expiresAt === null ? 'NULL' : (string) $record->expiresAt) . ', '
             . '`date_add` = NOW() '
             . 'ON DUPLICATE KEY UPDATE '
             . '`id_order` = VALUES(`id_order`), `received` = VALUES(`received`), `status` = VALUES(`status`)'
@@ -78,10 +94,10 @@ final class SqlPaymentStore implements PaymentStore
         return $result;
     }
 
-    private function select(string $condition, string $lockClause): ?PaymentRecord
+    private function select(string $condition): ?PaymentRecord
     {
         $row = $this->db->fetchFirstRow(
-            'SELECT * FROM `' . $this->prefix . 'suawave_payment` WHERE ' . $condition . ' LIMIT 1' . $lockClause
+            'SELECT `p`.* FROM `' . $this->prefix . 'suawave_payment` `p` WHERE ' . $condition . ' LIMIT 1'
         );
         return $row === null ? null : self::toRecord($row);
     }
@@ -103,7 +119,8 @@ final class SqlPaymentStore implements PaymentStore
             (string) $row['amount'],
             (string) $row['minimum'],
             (string) $row['received'],
-            (string) $row['status']
+            (string) $row['status'],
+            isset($row['expires_at']) && $row['expires_at'] !== '' ? (int) $row['expires_at'] : null
         );
     }
 }

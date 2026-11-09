@@ -28,7 +28,11 @@ class GatewayClient
         if (!is_string($address) || $address === '' || !is_string($minimum) || !Decimal::isValid($minimum)) {
             throw new GatewayException('gateway returned an unusable address');
         }
-        return ['address_in' => $address, 'minimum_transaction_coin' => $minimum];
+        return [
+            'address_in' => $address,
+            'minimum_transaction_coin' => $minimum,
+            'expires_at' => PaymentWindow::parse($data['expires_at'] ?? null),
+        ];
     }
 
     public function convertToTicker(string $ticker, string $fiatAmount, string $fiatCurrency): string

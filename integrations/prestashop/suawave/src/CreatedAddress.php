@@ -9,7 +9,8 @@ final class CreatedAddress
     public function __construct(
         public readonly string $addressIn,
         public readonly string $addressOut,
-        public readonly string $minimum
+        public readonly string $minimum,
+        public readonly ?int $expiresAt = null
     ) {
     }
 }

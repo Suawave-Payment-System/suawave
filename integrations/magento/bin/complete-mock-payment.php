@@ -66,7 +66,7 @@ $ledger = new class ($reference, $nonce, $created['address_in'], $ticker, $expec
         return $orderReference === $this->payment->orderReference ? $this->payment : null;
     }
 
-    public function applyDeposit(string $orderReference, string $eventUuid, string $depositTransaction, string $depositAmount, string $newReceivedTotal, bool $fullyPaid): void
+    public function applyDeposit(string $orderReference, string $eventUuid, string $depositTransaction, string $depositAmount, string $newReceivedTotal, bool $fullyPaid, ?int $previousAttempt = null): void
     {
         $this->applied++;
         $this->payment = new ExpectedPayment(
@@ -79,6 +79,11 @@ $ledger = new class ($reference, $nonce, $created['address_in'], $ticker, $expec
             $this->payment->paid || $fullyPaid
         );
         fwrite(STDOUT, sprintf("applied deposit %s of %s (event %s), total %s, paid=%s\n", $depositTransaction, $depositAmount, $eventUuid, $newReceivedTotal, $this->payment->paid ? 'yes' : 'no'));
+    }
+
+    public function noteReconcile(string $orderReference, string $eventUuid, string $depositTransaction, string $depositAmount): void
+    {
+        fwrite(STDOUT, sprintf("deposit %s of %s (event %s) after the order was paid, reconcile\n", $depositTransaction, $depositAmount, $eventUuid));
     }
 };
 

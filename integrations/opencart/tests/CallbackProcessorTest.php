@@ -100,8 +100,9 @@ final class CallbackProcessorTest extends TestCase
         $this->processor->process($this->signedGet($this->confirmed('uuid-1', '40.000000') . '&txid_in=abc'));
         $this->assertCount(1, $this->orders->notes);
         $this->assertSame(1001, $this->orders->notes[0][0]);
-        $this->assertStringContainsString('received 40.000000', $this->orders->notes[0][1]);
-        $this->assertStringContainsString('outstanding 60.000000', $this->orders->notes[0][1]);
+        $this->assertStringContainsString('received 40.00,', $this->orders->notes[0][1]);
+        $this->assertStringContainsString('outstanding 60.00,', $this->orders->notes[0][1]);
+        $this->assertStringNotContainsString('40.000000', $this->orders->notes[0][1]);
         $this->assertStringContainsString('transaction abc', $this->orders->notes[0][1]);
         $this->assertSame([], $this->orders->paidOrders);
         $this->assertSame([], $this->orders->paidComments);
@@ -109,7 +110,7 @@ final class CallbackProcessorTest extends TestCase
         $this->processor->process($this->signedGet($this->confirmed('uuid-2', '60.000000') . '&txid_in=def'));
         $this->assertCount(1, $this->orders->notes);
         $this->assertSame([1001], $this->orders->paidOrders);
-        $this->assertStringContainsString('total received 100.000000 of 100.00', $this->orders->paidComments[0]);
+        $this->assertStringContainsString('total received 100.00 of 100.00', $this->orders->paidComments[0]);
         $this->assertStringContainsString('transaction def', $this->orders->paidComments[0]);
     }
 
@@ -275,14 +276,14 @@ final class CallbackProcessorTest extends TestCase
         $this->assertSame('0.3', $this->store->findByAddressIn('TOther')->received);
     }
 
-    public function testReadSumAndDecideHappenInOneTransactionUnderTheRowLock(): void
+    public function testOrderLockComesFirstThenReadSumAndDecideHappenInOneTransactionUnderTheRowLock(): void
     {
         $this->store->operations = [];
 
         $this->processor->process($this->signedGet($this->confirmed('uuid-1', '100.000000')));
 
         $this->assertSame(
-            ['begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'save:paid:100.000000', 'commit'],
+            ['order-lock:1001', 'begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'save:paid:100.000000', 'commit', 'order-unlock:1001'],
             $this->store->operations
         );
     }
@@ -295,7 +296,7 @@ final class CallbackProcessorTest extends TestCase
 
         $this->processor->process($request);
 
-        $this->assertSame(['begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'commit'], $this->store->operations);
+        $this->assertSame(['order-lock:1001', 'begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'commit', 'order-unlock:1001'], $this->store->operations);
         $this->assertSame('40.000000', $this->store->findByAddressIn(self::ADDRESS)->received);
     }
 
@@ -336,7 +337,7 @@ final class CallbackProcessorTest extends TestCase
         $outcome = $this->processor->process($this->signedGet($this->confirmed('uuid-old', '100.000000')));
 
         $this->assertSame(200, $outcome->httpStatus);
-        $this->assertSame('superseded', $outcome->reason);
+        $this->assertSame('order_changed', $outcome->reason);
         $this->assertSame([], $this->orders->paidOrders);
         $old = $this->store->findByAddressIn(self::ADDRESS);
         $this->assertSame(PaymentRecord::SUPERSEDED, $old->status);
@@ -358,15 +359,23 @@ final class CallbackProcessorTest extends TestCase
         $this->assertSame([], $this->orders->notes);
     }
 
-    public function testSupersededAddressNeverPaysEvenWhenTheOldAmountIsLaterRestored(): void
+    public function testSupersededAddressPaysAnUnpaidOrderOnceWhenTheOldAmountIsRestored(): void
     {
         $this->supersedeWithNewAddress('150.00');
         $this->orders->quotes[1001] = ['amount' => '100.00', 'ticker' => 'trc20/usdt'];
 
         $outcome = $this->processor->process($this->signedGet($this->confirmed('uuid-old', '100.000000')));
+        $later = $this->processor->process($this->signedGet($this->confirmedFor('TNewAddress', 'uuid-new', '150.000000')));
 
-        $this->assertSame('superseded', $outcome->reason);
-        $this->assertSame([], $this->orders->paidOrders);
+        $this->assertSame('paid', $outcome->reason);
+        $this->assertSame('already_paid', $later->reason);
+        $this->assertSame([1001], $this->orders->paidOrders);
+        $this->assertStringContainsString('completed on ' . self::ADDRESS, $this->orders->paidComments[0]);
+        $this->assertSame(PaymentRecord::PAID, $this->store->findByAddressIn(self::ADDRESS)->status);
+        $this->assertSame(self::ADDRESS, $this->store->findPaidByOrderId(1001)->addressIn);
+        $this->assertSame(PaymentRecord::AWAITING, $this->store->findByAddressIn('TNewAddress')->status);
+        $this->assertCount(1, $this->orders->notes);
+        $this->assertStringContainsString('payment received on a previous attempt, reconcile', $this->orders->notes[0][1]);
     }
 
     public function testCurrentRecordWhoseQuoteNoLongerMatchesTheOrderIsNotMarkedPaid(): void

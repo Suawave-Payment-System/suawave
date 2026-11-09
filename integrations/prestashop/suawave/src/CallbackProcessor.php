@@ -8,12 +8,16 @@ use Throwable;
 
 final class CallbackProcessor
 {
+    public const RECONCILE_NOTE = 'Suawave payment received on a previous attempt, reconcile';
+    public const PAID_NOTE = 'Suawave payment received after the order was paid, reconcile';
+
     public function __construct(
         private readonly PublicKeyProvider $keys,
         private readonly string $externalOrigin,
         private readonly PaymentStore $store,
         private readonly OrderGateway $orders,
-        private readonly ?FailureLog $log = null
+        private readonly ?FailureLog $log = null,
+        private readonly ?PaymentLabel $labels = null
     ) {
     }
 
@@ -60,37 +64,55 @@ final class CallbackProcessor
 
     private function apply(CallbackRequest $request, array $fields, array $event): CallbackOutcome
     {
-        $record = $this->store->lockByAddressIn($event['address_in']);
+        $found = $this->store->findByAddressIn($event['address_in']);
+        if ($found === null) {
+            return CallbackOutcome::acknowledged('unknown_address');
+        }
+        $rows = $this->store->lockCart($found->cartId);
+        $record = CartAttempts::byAddress($rows, $event['address_in']);
         if ($record === null) {
             return CallbackOutcome::acknowledged('unknown_address');
         }
         if (!self::matchesRecord($request, $fields, $event, $record)) {
             return CallbackOutcome::rejected(400, 'record_mismatch');
         }
-        if ($event['pending'] === '0' && $record->orderId === 0) {
+        $orderId = CartAttempts::orderId($rows);
+        if ($event['pending'] === '0' && $orderId === 0) {
             return CallbackOutcome::rejected(503, 'order_not_created');
         }
         if (!$this->store->claimEvent($event['uuid'], $record->addressIn)) {
             return CallbackOutcome::acknowledged('duplicate');
         }
+        $isCurrent = CartAttempts::current($rows)?->addressIn === $record->addressIn;
         if ($event['pending'] === '1') {
-            if ($record->status === PaymentRecord::AWAITING) {
+            if ($isCurrent && $record->status === PaymentRecord::AWAITING) {
                 $this->store->save($record->with($record->received, PaymentRecord::DETECTED));
             }
             return CallbackOutcome::acknowledged('pending');
         }
         $received = Decimal::add($record->received, $event['value_coin']);
-        if ($record->status === PaymentRecord::PAID) {
-            $this->store->save($record->with($received, PaymentRecord::PAID));
+        $paid = CartAttempts::paid($rows);
+        if ($paid !== null) {
+            $this->store->save($record->with($received, $record->status));
+            $note = $paid->addressIn === $record->addressIn ? self::PAID_NOTE : self::RECONCILE_NOTE;
+            $this->orders->addNote($orderId, $note . ': ' . Decimal::plain($event['value_coin']) . ' ' . strtoupper($record->ticker) . ' to ' . $record->addressIn);
             return CallbackOutcome::acknowledged('already_paid');
         }
         if (Decimal::compare($received, $record->amount) < 0) {
             $this->store->save($record->with($received, $record->status));
+            $this->orders->addNote(
+                $orderId,
+                'Suawave partial deposit confirmed on ' . $record->addressIn . ': received ' . Decimal::plain($event['value_coin']) . ' ' . strtoupper($record->ticker)
+                . ', total received ' . Decimal::plain($received) . ' of ' . Decimal::plain($record->amount) . ', outstanding ' . Decimal::plain(self::outstanding($record->amount, $received)) . $event['txid'] . '.'
+            );
             return CallbackOutcome::acknowledged('underpaid');
         }
-        $this->orders->markPaid($record->orderId, 'Suawave payment confirmed, received ' . $received . ' of ' . $record->amount);
+        if ($this->labels !== null) {
+            $this->orders->relabel($orderId, $this->labels->paid());
+        }
+        $this->orders->markPaid($orderId, 'Suawave payment confirmed, received ' . Decimal::plain($received) . ' of ' . Decimal::plain($record->amount) . ' to ' . $record->addressIn);
         $this->store->save($record->with($received, PaymentRecord::PAID));
-        return CallbackOutcome::acknowledged('paid');
+        return CallbackOutcome::acknowledged($isCurrent ? 'paid' : 'paid_previous_attempt');
     }
 
     private static function readEvent(array $fields): ?array
@@ -120,7 +142,18 @@ final class CallbackProcessor
             'coin' => $fields['coin'],
             'pending' => $fields['pending'],
             'value_coin' => $valueCoin,
+            'txid' => is_string($fields['txid_in'] ?? null) && preg_match('/^[0-9A-Za-z_:-]{1,128}$/D', $fields['txid_in']) === 1 ? ', transaction ' . $fields['txid_in'] : '',
         ];
+    }
+
+    private static function outstanding(string $amount, string $received): string
+    {
+        $scale = 0;
+        foreach ([$amount, $received] as $value) {
+            $position = strpos($value, '.');
+            $scale = max($scale, $position === false ? 0 : strlen($value) - $position - 1);
+        }
+        return bcsub($amount, $received, $scale);
     }
 
     private static function matchesRecord(CallbackRequest $request, array $fields, array $event, PaymentRecord $record): bool

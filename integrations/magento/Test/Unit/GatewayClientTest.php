@@ -42,7 +42,7 @@ final class GatewayClientTest extends TestCase
             'minimum_transaction_coin' => '10.000000',
         ], $transport);
         $created = $client->createAddress('trc20/usdt', 'TPayout', 'https://shop.example/suawave/callback/index?order=1&nonce=ab');
-        self::assertSame(['address_in' => 'TDeposit', 'minimum_transaction_coin' => '10.000000'], $created);
+        self::assertSame(['address_in' => 'TDeposit', 'minimum_transaction_coin' => '10.000000', 'expires_at' => null], $created);
         self::assertSame(
             'https://gw.example/trc20/usdt/create/?address=TPayout&callback=https%3A%2F%2Fshop.example%2Fsuawave%2Fcallback%2Findex%3Forder%3D1%26nonce%3Dab&json=1',
             $transport->urls[0]

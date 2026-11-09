@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Suawave;
 
 use Configuration;
+use Context;
+use DateTimeZone;
+use Exception;
 
 final class PrestashopRuntime
 {
@@ -14,6 +17,7 @@ final class PrestashopRuntime
     public const ORIGIN = 'SUAWAVE_ORIGIN';
     public const CURRENCY = 'SUAWAVE_CURRENCY';
     public const AWAITING_STATE = 'SUAWAVE_OS_AWAITING';
+    public const SCHEMA = 'SUAWAVE_SCHEMA';
 
     public static function setting(string $name): string
     {
@@ -38,12 +42,46 @@ final class PrestashopRuntime
 
     public static function store(): SqlPaymentStore
     {
+        self::ensureSchema();
         return new SqlPaymentStore(new PrestashopConnection(), _DB_PREFIX_);
+    }
+
+    public static function schema(): Schema
+    {
+        return new Schema(new PrestashopConnection(), _DB_PREFIX_);
+    }
+
+    public static function ensureSchema(): void
+    {
+        if (Configuration::get(self::SCHEMA) === Schema::VERSION) {
+            return;
+        }
+        self::schema()->upgrade();
+        Configuration::updateValue(self::SCHEMA, Schema::VERSION);
     }
 
     public static function callbackBaseUrl(): string
     {
         return rtrim(self::setting(self::ORIGIN), '/') . '/index.php?fc=module&module=suawave&controller=callback';
+    }
+
+    public static function zone(): DateTimeZone
+    {
+        $zone = (string) Configuration::get('PS_TIMEZONE');
+        try {
+            return new DateTimeZone($zone !== '' ? $zone : 'UTC');
+        } catch (Exception) {
+            return new DateTimeZone('UTC');
+        }
+    }
+
+    public static function labels(): PaymentLabel
+    {
+        return new PaymentLabel(
+            'Suawave',
+            self::zone(),
+            static fn (string $text): string => (string) Context::getContext()->getTranslator()->trans($text, [], 'Modules.Suawave.Shop')
+        );
     }
 
     public static function checkout(): CheckoutService
@@ -53,8 +91,16 @@ final class PrestashopRuntime
             self::store(),
             self::setting(self::TICKER),
             self::setting(self::PAYOUT),
-            self::callbackBaseUrl()
+            self::callbackBaseUrl(),
+            null,
+            new PrestashopOrderGateway(),
+            self::labels()
         );
+    }
+
+    public static function expiry(string $noteText): ExpiryNotifier
+    {
+        return new ExpiryNotifier(self::store(), new PrestashopOrderGateway(), $noteText, self::labels());
     }
 
     public static function processor(): CallbackProcessor
@@ -64,7 +110,8 @@ final class PrestashopRuntime
             self::setting(self::ORIGIN),
             self::store(),
             new PrestashopOrderGateway(),
-            new PrestashopFailureLog()
+            new PrestashopFailureLog(),
+            self::labels()
         );
     }
 }

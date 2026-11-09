@@ -59,6 +59,42 @@ class Decimal
         return bcadd(bcadd($value, '0.005', 3), '0', 2);
     }
 
+    public static function display(string $value, ?int $places): string
+    {
+        self::assertValid($value);
+        $scale = self::fractionDigits($value);
+        if ($places !== null && $scale > $places) {
+            $shown = bcadd($value, '0', $places);
+            if (bccomp($shown, $value, $scale) < 0) {
+                $shown = bcadd($shown, $places === 0 ? '1' : '0.' . str_repeat('0', $places - 1) . '1', $places);
+            }
+            $value = $shown;
+        }
+        return self::trimmed($value);
+    }
+
+    public static function plain(string $value): string
+    {
+        self::assertValid($value);
+        return self::trimmed($value);
+    }
+
+    public static function displayPlaces(string $ticker): ?int
+    {
+        $symbol = strtolower(substr($ticker, (int) strpos($ticker, '/') + 1));
+        return in_array($symbol, ['usdt', 'usdc'], true) ? 6 : null;
+    }
+
+    private static function trimmed(string $value): string
+    {
+        if (strpos($value, '.') === false) {
+            return $value;
+        }
+        $value = rtrim($value, '0');
+        $digits = self::fractionDigits($value);
+        return $digits < 2 ? $value . str_repeat('0', 2 - $digits) : $value;
+    }
+
     private static function fractionDigits(string $value): int
     {
         $position = strpos($value, '.');

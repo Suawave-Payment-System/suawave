@@ -64,6 +64,7 @@ final class CallbackProcessorTest extends TestCase
 
         $this->assertSame('already_paid', $second->reason);
         $this->assertSame([2001], $this->orders->paidOrders);
+        $this->assertSame([[2001, CallbackProcessor::PAID_NOTE . ': 5.00 TRC20/USDT to ' . self::ADDRESS]], $this->orders->notes);
         $this->assertSame('105.000000', $this->store->findByAddressIn(self::ADDRESS)->received);
     }
 
@@ -93,6 +94,47 @@ final class CallbackProcessorTest extends TestCase
 
         $this->processor->process($this->signedGet($this->confirmed('uuid-2', '60.000000')));
         $this->assertSame([2001], $this->orders->paidOrders);
+    }
+
+    public function testPartialDepositAddsOneMessageOncePerDepositAndLeavesTheState(): void
+    {
+        $partial = $this->signedGet($this->confirmed('uuid-1', '40.000000') . '&txid_in=0xabc123');
+
+        $first = $this->processor->process($partial);
+        $replay = $this->processor->process($partial);
+
+        $this->assertSame('underpaid', $first->reason);
+        $this->assertSame('duplicate', $replay->reason);
+        $this->assertSame([], $this->orders->paidOrders);
+        $this->assertSame([], $this->orders->labels);
+        $this->assertSame(PaymentRecord::AWAITING, $this->store->findByAddressIn(self::ADDRESS)->status);
+        $this->assertSame([[2001, 'Suawave partial deposit confirmed on ' . self::ADDRESS . ': received 40.00 TRC20/USDT, total received 40.00 of 100.00, outstanding 60.00, transaction 0xabc123.']], $this->orders->notes);
+
+        $this->processor->process($this->signedGet($this->confirmed('uuid-2', '35.5')));
+        $this->assertSame('Suawave partial deposit confirmed on ' . self::ADDRESS . ': received 35.50 TRC20/USDT, total received 75.50 of 100.00, outstanding 24.50.', $this->orders->notes[1][1]);
+
+        $completing = $this->processor->process($this->signedGet($this->confirmed('uuid-3', '24.500000')));
+        $this->processor->process($this->signedGet($this->confirmed('uuid-3', '24.500000')));
+
+        $this->assertSame('paid', $completing->reason);
+        $this->assertSame([2001], $this->orders->paidOrders);
+        $this->assertCount(2, $this->orders->notes);
+    }
+
+    public function testEighteenDecimalDepositsAreNotedWithoutTrailingZeros(): void
+    {
+        $this->processor->process($this->signedGet($this->confirmed('uuid-1', '40.000000000000000000')));
+        $this->processor->process($this->signedGet($this->confirmed('uuid-2', '60.000000000000000000')));
+
+        $this->assertSame('Suawave partial deposit confirmed on ' . self::ADDRESS . ': received 40.00 TRC20/USDT, total received 40.00 of 100.00, outstanding 60.00.', $this->orders->notes[0][1]);
+        $this->assertSame(['Suawave payment confirmed, received 100.00 of 100.00 to ' . self::ADDRESS], $this->orders->paidComments);
+    }
+
+    public function testPartialDepositMessageSkipsAnUnusableTransactionId(): void
+    {
+        $this->processor->process($this->signedGet($this->confirmed('uuid-1', '40.000000') . '&txid_in=' . rawurlencode('<b onclick=x>')));
+
+        $this->assertStringEndsWith('outstanding 60.00.', $this->orders->notes[0][1]);
     }
 
     public function testOverpaymentMarksPaid(): void
@@ -287,7 +329,7 @@ final class CallbackProcessorTest extends TestCase
         $this->processor->process($this->signedGet($this->confirmed('uuid-1', '100.000000')));
 
         $this->assertSame(
-            ['begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'save:paid:100.000000', 'commit'],
+            ['begin', 'lock:1001', 'claim:uuid-1', 'save:paid:100.000000', 'commit'],
             $this->store->operations
         );
     }
@@ -300,7 +342,7 @@ final class CallbackProcessorTest extends TestCase
 
         $this->processor->process($request);
 
-        $this->assertSame(['begin', 'lock:' . self::ADDRESS, 'claim:uuid-1', 'commit'], $this->store->operations);
+        $this->assertSame(['begin', 'lock:1001', 'claim:uuid-1', 'commit'], $this->store->operations);
         $this->assertSame('40.000000', $this->store->findByAddressIn(self::ADDRESS)->received);
     }
 
@@ -320,7 +362,7 @@ final class CallbackProcessorTest extends TestCase
     {
         $this->expectException(\LogicException::class);
 
-        $this->store->lockByAddressIn(self::ADDRESS);
+        $this->store->lockCart(1001);
     }
 
     public function testSameTransactionHashUnderTwoUuidsCountsAsTwoDeposits(): void

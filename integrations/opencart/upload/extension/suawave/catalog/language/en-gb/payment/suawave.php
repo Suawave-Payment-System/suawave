@@ -10,6 +10,9 @@ $_['text_waiting'] = 'Waiting for your payment.';
 $_['text_detected'] = 'Payment detected, waiting for confirmation.';
 $_['text_paid'] = 'Payment confirmed.';
 $_['text_pay'] = 'Pay with Suawave';
+$_['text_deadline'] = 'Pay before';
+$_['text_pay_before'] = 'Pay before %s.';
+$_['text_closed'] = 'The payment window for order %s closed on %s. Do not send funds to the old address. Please contact the shop.';
 
 $_['error_order'] = 'Your order could not be found.';
 $_['error_method'] = 'Suawave payment is not the selected payment method.';

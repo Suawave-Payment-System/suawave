@@ -12,4 +12,5 @@ class Suawave extends AbstractMethod
     protected $_isOffline = true;
     protected $_canUseInternal = false;
     protected $_canUseCheckout = true;
+    protected $_infoBlockType = \Suawave\Payment\Block\Info\Suawave::class;
 }

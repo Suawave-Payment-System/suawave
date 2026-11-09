@@ -9,6 +9,8 @@ final class PaymentRecord
     public const AWAITING = 'awaiting';
     public const DETECTED = 'detected';
     public const PAID = 'paid';
+    public const EXPIRED = 'expired';
+    public const SUPERSEDED = 'superseded';
 
     public function __construct(
         public readonly int $cartId,
@@ -20,7 +22,8 @@ final class PaymentRecord
         public readonly string $amount,
         public readonly string $minimum,
         public readonly string $received,
-        public readonly string $status
+        public readonly string $status,
+        public readonly ?int $expiresAt = null
     ) {
     }
 
@@ -36,7 +39,8 @@ final class PaymentRecord
             $this->amount,
             $this->minimum,
             $received,
-            $status
+            $status,
+            $this->expiresAt
         );
     }
 
@@ -52,7 +56,20 @@ final class PaymentRecord
             $this->amount,
             $this->minimum,
             $this->received,
-            $this->status
+            $this->status,
+            $this->expiresAt
         );
+    }
+
+    public function isOpen(int $now): bool
+    {
+        return ($this->status === self::AWAITING || $this->status === self::DETECTED)
+            && !PaymentWindow::isClosed($this->expiresAt, $now);
+    }
+
+    public function isOverdue(int $now): bool
+    {
+        return ($this->status === self::AWAITING || $this->status === self::DETECTED)
+            && PaymentWindow::isClosed($this->expiresAt, $now);
     }
 }

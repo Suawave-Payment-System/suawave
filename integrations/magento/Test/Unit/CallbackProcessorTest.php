@@ -38,6 +38,7 @@ final class MemoryKeys implements PublicKeyProvider
 final class MemoryLedger implements PaymentLedger
 {
     public array $applied = [];
+    public array $reconcileNotes = [];
     public bool $failNext = false;
     public ?ExpectedPayment $payment;
 
@@ -65,7 +66,8 @@ final class MemoryLedger implements PaymentLedger
         string $depositTransaction,
         string $depositAmount,
         string $newReceivedTotal,
-        bool $fullyPaid
+        bool $fullyPaid,
+        ?int $previousAttempt = null
     ): void {
         if ($this->failNext) {
             $this->failNext = false;
@@ -81,6 +83,15 @@ final class MemoryLedger implements PaymentLedger
             $newReceivedTotal,
             $this->payment->paid || $fullyPaid
         );
+    }
+
+    public function noteReconcile(
+        string $orderReference,
+        string $eventUuid,
+        string $depositTransaction,
+        string $depositAmount
+    ): void {
+        $this->reconcileNotes[] = [$eventUuid, $depositAmount];
     }
 }
 
@@ -379,15 +390,16 @@ final class CallbackProcessorTest extends TestCase
         self::assertSame([], $this->transaction->log);
     }
 
-    public function testTwoDifferentUuidsSumInSequenceAndPayExactlyOnce(): void
+    public function testDepositsSumUntilPaidAndALaterDepositOnlyAddsTheReconcileNote(): void
     {
         $this->processor->handle($this->post($this->confirmedBody(['uuid' => 'a', 'txid_in' => 'tx-a', 'value_coin' => '60'])));
         $this->processor->handle($this->post($this->confirmedBody(['uuid' => 'b', 'txid_in' => 'tx-b', 'value_coin' => '60'])));
         $this->processor->handle($this->post($this->confirmedBody(['uuid' => 'c', 'txid_in' => 'tx-c', 'value_coin' => '60'])));
         $transitions = array_filter($this->ledger->applied, static fn (array $row): bool => $row[3]);
-        self::assertCount(3, $this->ledger->applied);
-        self::assertSame('180', $this->ledger->payment->receivedAmount);
-        self::assertSame(['b', 'c'], array_column(array_values($transitions), 0));
+        self::assertCount(2, $this->ledger->applied);
+        self::assertSame('120', $this->ledger->payment->receivedAmount);
+        self::assertSame(['b'], array_column(array_values($transitions), 0));
+        self::assertSame([['c', '60']], $this->ledger->reconcileNotes);
         self::assertSame(3, count(array_keys($this->transaction->log, 'lock:' . Fixtures::ORDER, true)));
     }
 

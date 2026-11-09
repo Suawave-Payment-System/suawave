@@ -14,6 +14,7 @@ final class RecordingOrderGateway implements OrderGateway
     public array $quotes = [];
     public array $notes = [];
     public array $paidComments = [];
+    public array $customerNotes = [];
 
     public function markPaid(int $orderId, string $comment): void
     {
@@ -28,6 +29,11 @@ final class RecordingOrderGateway implements OrderGateway
     public function addNote(int $orderId, string $comment): void
     {
         $this->notes[] = [$orderId, $comment];
+    }
+
+    public function addCustomerNote(int $orderId, string $comment): void
+    {
+        $this->customerNotes[] = [$orderId, $comment];
     }
 
     public function currentPayable(int $orderId): ?array

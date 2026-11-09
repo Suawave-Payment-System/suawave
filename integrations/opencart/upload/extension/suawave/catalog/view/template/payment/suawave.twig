@@ -4,16 +4,20 @@
   </div>
   <div id="suawave-alert" class="alert alert-danger d-none"></div>
   <div id="suawave-details" class="d-none mt-3">
-    <p>{{ text_instruction }}</p>
-    <dl class="row">
-      <dt class="col-sm-3">{{ text_amount }}</dt>
-      <dd class="col-sm-9"><span id="suawave-amount"></span></dd>
-      <dt class="col-sm-3">{{ text_asset }}</dt>
-      <dd class="col-sm-9"><span id="suawave-asset"></span></dd>
-      <dt class="col-sm-3">{{ text_address }}</dt>
-      <dd class="col-sm-9"><code id="suawave-address"></code></dd>
-    </dl>
-    <div id="suawave-qr" class="mb-3" style="width: 220px"></div>
+    <div id="suawave-destination">
+      <p>{{ text_instruction }}</p>
+      <dl class="row">
+        <dt class="col-sm-3">{{ text_amount }}</dt>
+        <dd class="col-sm-9"><span id="suawave-amount"></span></dd>
+        <dt class="col-sm-3">{{ text_asset }}</dt>
+        <dd class="col-sm-9"><span id="suawave-asset"></span></dd>
+        <dt class="col-sm-3">{{ text_deadline }}</dt>
+        <dd class="col-sm-9"><span id="suawave-deadline"></span></dd>
+        <dt class="col-sm-3">{{ text_address }}</dt>
+        <dd class="col-sm-9"><code id="suawave-address"></code></dd>
+      </dl>
+      <div id="suawave-qr" class="mb-3" style="width: 220px"></div>
+    </div>
     <p id="suawave-state" class="fw-bold"></p>
   </div>
 </div>
@@ -31,8 +35,22 @@
   var button = document.getElementById('suawave-pay');
   var alertBox = document.getElementById('suawave-alert');
   var details = document.getElementById('suawave-details');
+  var destination = document.getElementById('suawave-destination');
   var state = document.getElementById('suawave-state');
   var timer = null;
+
+  function stopPolling() {
+    if (timer !== null) {
+      window.clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  function hideDestination() {
+    document.getElementById('suawave-address').textContent = '';
+    document.getElementById('suawave-qr').innerHTML = '';
+    destination.classList.add('d-none');
+  }
 
   function renderQr(text) {
     var code = qrcode(0, 'M');
@@ -41,16 +59,37 @@
     document.getElementById('suawave-qr').innerHTML = code.createSvgTag(4, 2);
   }
 
+  function closeWindow(text) {
+    stopPolling();
+    hideDestination();
+    details.classList.add('d-none');
+    alertBox.textContent = text;
+    alertBox.classList.remove('d-none');
+    button.disabled = false;
+  }
+
+  function apply(data) {
+    if (data.status === 'paid') {
+      stopPolling();
+      state.textContent = messages.paid;
+      window.location.href = successUrl;
+      return false;
+    }
+    if (data.status === 'closed') {
+      closeWindow(data.closed_text);
+      return false;
+    }
+    if (data.window_closed) {
+      hideDestination();
+    }
+    state.textContent = messages[data.status] || messages.waiting;
+    return true;
+  }
+
   function poll() {
     fetch(statusUrl, { credentials: 'same-origin' })
       .then(function (response) { return response.json(); })
-      .then(function (data) {
-        state.textContent = messages[data.status] || messages.waiting;
-        if (data.status === 'paid') {
-          window.clearInterval(timer);
-          window.location.href = successUrl;
-        }
-      });
+      .then(apply);
   }
 
   button.addEventListener('click', function () {
@@ -65,11 +104,20 @@
           button.disabled = false;
           return;
         }
-        document.getElementById('suawave-amount').textContent = data.amount;
-        document.getElementById('suawave-asset').textContent = data.asset;
-        document.getElementById('suawave-address').textContent = data.address;
-        renderQr(data.qr_text);
-        state.textContent = messages.waiting;
+        stopPolling();
+        if (!apply(data)) {
+          return;
+        }
+        if (data.address) {
+          document.getElementById('suawave-amount').textContent = data.amount;
+          document.getElementById('suawave-asset').textContent = data.asset;
+          document.getElementById('suawave-address').textContent = data.address;
+          document.getElementById('suawave-deadline').textContent = data.deadline;
+          renderQr(data.qr_text);
+          destination.classList.remove('d-none');
+        } else {
+          hideDestination();
+        }
         details.classList.remove('d-none');
         timer = window.setInterval(poll, 5000);
       })

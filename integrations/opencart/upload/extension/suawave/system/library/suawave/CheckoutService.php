@@ -11,18 +11,32 @@ final class CheckoutService
         private readonly PaymentStore $store,
         private readonly string $ticker,
         private readonly string $payoutAddress,
-        private readonly string $callbackBaseUrl
+        private readonly string $callbackBaseUrl,
+        private $clock = null
     ) {
     }
 
-    public function begin(int $orderId, string $amount): PaymentRecord
+    public function begin(int $orderId, string $amount, ?callable $underLock = null): PaymentRecord
     {
         if (!Decimal::isPositive($amount)) {
             throw new GatewayException('the order amount is not a positive decimal');
         }
-        $existing = $this->store->findByOrderId($orderId);
-        if ($existing !== null && $existing->amount === $amount && $existing->ticker === $this->ticker) {
-            return $existing;
+        $existing = $this->store->findPaidByOrderId($orderId) ?? $this->store->findByOrderId($orderId);
+        if (!$this->needsNewAttempt($existing, $amount)) {
+            if ($underLock === null) {
+                return $existing;
+            }
+            $kept = $this->store->withOrderLock($orderId, function () use ($orderId, $amount, $underLock): ?PaymentRecord {
+                $current = $this->store->findPaidByOrderId($orderId) ?? $this->store->findByOrderId($orderId);
+                if ($this->needsNewAttempt($current, $amount)) {
+                    return null;
+                }
+                $underLock($current, false);
+                return $current;
+            });
+            if ($kept !== null) {
+                return $kept;
+            }
         }
         $nonce = bin2hex(random_bytes(16));
         $callbackUrl = $this->callbackBaseUrl
@@ -41,12 +55,48 @@ final class CheckoutService
             $amount,
             $created->minimum,
             '0',
-            PaymentRecord::AWAITING
+            PaymentRecord::AWAITING,
+            $created->expiresAt
         );
-        if ($existing !== null && $existing->status !== PaymentRecord::PAID && $existing->status !== PaymentRecord::SUPERSEDED) {
-            $this->store->save($existing->with($existing->received, PaymentRecord::SUPERSEDED));
+        return $this->store->withOrderLock($orderId, function () use ($orderId, $amount, $record, $underLock): PaymentRecord {
+            $current = $this->store->findPaidByOrderId($orderId) ?? $this->store->findByOrderId($orderId);
+            if (!$this->needsNewAttempt($current, $amount)) {
+                if ($underLock !== null) {
+                    $underLock($current, false);
+                }
+                return $current;
+            }
+            if ($current !== null) {
+                $locked = $this->store->lockByAddressIn($current->addressIn);
+                if ($locked !== null && $locked->status !== PaymentRecord::PAID) {
+                    $this->store->save($locked->with($locked->received, PaymentRecord::SUPERSEDED));
+                }
+            }
+            $this->store->lockByAddressIn($record->addressIn);
+            $this->store->save($record);
+            if ($underLock !== null) {
+                $underLock($record, $current !== null);
+            }
+            return $record;
+        });
+    }
+
+    private function needsNewAttempt(?PaymentRecord $current, string $amount): bool
+    {
+        if ($current === null) {
+            return true;
         }
-        $this->store->save($record);
-        return $record;
+        if ($current->status === PaymentRecord::PAID) {
+            return false;
+        }
+        if ($current->status === PaymentRecord::SUPERSEDED || $current->amount !== $amount || $current->ticker !== $this->ticker) {
+            return true;
+        }
+        return $current->status !== PaymentRecord::DETECTED && $current->isClosed($this->now());
+    }
+
+    private function now(): int
+    {
+        return $this->clock === null ? time() : (int) ($this->clock)();
     }
 }

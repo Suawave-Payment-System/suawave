@@ -47,21 +47,23 @@ final class SqlPaymentStoreTest extends TestCase
 
         $this->assertSame('paid', $outcome->reason);
         $this->assertSame(
-            ['START TRANSACTION', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'INSERT ps_suawave_payment', 'COMMIT'],
+            ['START TRANSACTION', 'SELECT', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'INSERT ps_suawave_payment', 'COMMIT'],
             $this->db->kinds()
         );
         $this->assertSame([2001], $this->orders->paidOrders);
-        $this->assertStringContainsString("`received` = '100.000000'", $this->db->statements[3]);
-        $this->assertStringContainsString("`status` = 'paid'", $this->db->statements[3]);
+        $this->assertStringContainsString("`received` = '100.000000'", $this->db->statements[4]);
+        $this->assertStringContainsString("`status` = 'paid'", $this->db->statements[4]);
     }
 
     public function testTheLockedSelectTargetsThePaymentRowAndTheClaimUsesTheUuid(): void
     {
         $this->processor->process($this->signedCallback('uuid-77', '60.000000', '0'));
 
-        $this->assertStringContainsString('FROM `ps_suawave_payment` WHERE `address_in` = \'' . self::ADDRESS . '\' LIMIT 1 FOR UPDATE', $this->db->statements[1]);
-        $this->assertStringContainsString("`uuid` = 'uuid-77'", $this->db->statements[2]);
-        $this->assertStringNotContainsString('txid_in', $this->db->statements[2]);
+        $this->assertStringContainsString('WHERE `p`.`address_in` = \'' . self::ADDRESS . '\' LIMIT 1', $this->db->statements[1]);
+        $this->assertStringNotContainsString('FOR UPDATE', $this->db->statements[1]);
+        $this->assertStringContainsString('FROM `ps_suawave_payment` WHERE `id_cart` = 1001 ORDER BY `id_payment` ASC FOR UPDATE', $this->db->statements[2]);
+        $this->assertStringContainsString("`uuid` = 'uuid-77'", $this->db->statements[3]);
+        $this->assertStringNotContainsString('txid_in', $this->db->statements[3]);
     }
 
     public function testRepeatedUuidWritesNothingAfterTheClaim(): void
@@ -71,7 +73,7 @@ final class SqlPaymentStoreTest extends TestCase
         $outcome = $this->processor->process($this->signedCallback('uuid-1', '60.000000', '0'));
 
         $this->assertSame('duplicate', $outcome->reason);
-        $this->assertSame(['START TRANSACTION', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'COMMIT'], $this->db->kinds());
+        $this->assertSame(['START TRANSACTION', 'SELECT', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'COMMIT'], $this->db->kinds());
         $this->assertSame([], $this->orders->paidOrders);
     }
 
@@ -79,8 +81,8 @@ final class SqlPaymentStoreTest extends TestCase
     {
         $this->processor->process($this->signedCallback('uuid-1', '10.500000', '0'));
 
-        $this->assertStringContainsString("`received` = '50.500000'", $this->db->statements[3]);
-        $this->assertStringContainsString("`status` = 'detected'", $this->db->statements[3]);
+        $this->assertStringContainsString("`received` = '50.500000'", $this->db->statements[4]);
+        $this->assertStringContainsString("`status` = 'detected'", $this->db->statements[4]);
         $this->assertSame([], $this->orders->paidOrders);
     }
 
@@ -92,10 +94,10 @@ final class SqlPaymentStoreTest extends TestCase
         $this->processor->process($this->signedCallback('uuid-p', '', '1'));
 
         $this->assertSame(
-            ['START TRANSACTION', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'INSERT ps_suawave_payment', 'COMMIT'],
+            ['START TRANSACTION', 'SELECT', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'INSERT ps_suawave_payment', 'COMMIT'],
             $this->db->kinds()
         );
-        $this->assertStringContainsString("`status` = 'detected'", $this->db->statements[3]);
+        $this->assertStringContainsString("`status` = 'detected'", $this->db->statements[4]);
         $this->assertSame([], $this->orders->paidOrders);
     }
 
@@ -106,7 +108,7 @@ final class SqlPaymentStoreTest extends TestCase
         $outcome = $this->processor->process($this->signedCallback('uuid-1', '60.000000', '0'));
 
         $this->assertSame(500, $outcome->httpStatus);
-        $this->assertSame(['START TRANSACTION', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'ROLLBACK'], $this->db->kinds());
+        $this->assertSame(['START TRANSACTION', 'SELECT', 'SELECT FOR UPDATE', 'INSERT IGNORE ps_suawave_event', 'ROLLBACK'], $this->db->kinds());
     }
 
     public function testRejectedSignatureTouchesNoStatement(): void
@@ -117,6 +119,17 @@ final class SqlPaymentStoreTest extends TestCase
 
         $this->assertSame(401, $outcome->httpStatus);
         $this->assertSame([], $this->db->statements);
+    }
+
+    public function testOrderAndCartLookupsReturnThePayingAttemptFirst(): void
+    {
+        $store = new SqlPaymentStore($this->db, 'ps_');
+
+        $store->findByCartId(1001);
+        $store->findByOrderId(2001);
+
+        $this->assertStringEndsWith("WHERE `p`.`id_cart` = 1001 ORDER BY `p`.`status` = 'paid' DESC, `p`.`id_payment` DESC LIMIT 1", $this->db->statements[0]);
+        $this->assertStringEndsWith("WHERE `p`.`id_order` = 2001 ORDER BY `p`.`status` = 'paid' DESC, `p`.`id_payment` DESC LIMIT 1", $this->db->statements[1]);
     }
 
     public function testPlainReadsTakeNoLock(): void
@@ -160,6 +173,8 @@ final class FakeSqlConnection implements SqlConnection
 {
     public array $statements = [];
     public ?array $row = null;
+    public ?array $rows = null;
+    public array $answers = [];
     public int $affected = 1;
 
     public function execute(string $sql): void
@@ -170,7 +185,18 @@ final class FakeSqlConnection implements SqlConnection
     public function fetchFirstRow(string $sql): ?array
     {
         $this->statements[] = $sql;
+        foreach ($this->answers as $needle => $answer) {
+            if (str_contains($sql, $needle)) {
+                return $answer;
+            }
+        }
         return $this->row;
+    }
+
+    public function fetchRows(string $sql): array
+    {
+        $this->statements[] = $sql;
+        return $this->rows ?? ($this->row === null ? [] : [$this->row]);
     }
 
     public function affectedRows(): int

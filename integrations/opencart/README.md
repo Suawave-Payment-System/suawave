@@ -14,8 +14,17 @@ Targets OpenCart 4.0.2.x. See "OpenCart 3.x" at the end for what differs.
 ## Install
 
 1. Run `make integrations-package` in the repository root and upload `dist/integrations/suawave.ocmod.zip` with Extensions > Installer (`install.json`, `admin/`, `catalog/` and `system/` at the zip root; the file name must stay `suawave.ocmod.zip` because OpenCart derives the extension code from it). Copying the folder into `extension/` by hand does not work: OpenCart 4 lists only extensions registered by the Installer.
-2. In the admin go to Extensions > Extensions, choose "Payments", find "Suawave" and click Install. This creates the tables `suawave_payment` and `suawave_event`. Then click Edit.
+2. In the admin go to Extensions > Extensions, choose "Payments", find "Suawave" and click Install. This creates the tables `suawave_payment` and `suawave_event`. Then click Edit. Updating an existing installation: see "Update without losing settings" below. Install and Save both run the schema routine, which adds missing columns (`expires_at`, `expiry_noted_at`) and the `expires_at` index with `ALTER TABLE` only after an `information_schema` check, so it is safe to repeat.
 3. Grant your admin user group access to `extension/suawave/payment/suawave` (System > Users > User Groups) if the Edit page says you lack permission.
+
+### Update without losing settings
+
+The settings live in `oc_setting` under `payment_suawave_*` and the tables `suawave_payment` and `suawave_event` hold the payments. OpenCart 4.0.2.3 cannot update a registered extension through the Installer: uploading the zip again answers "Extension already installed!", Installer > Uninstall is refused while the payment is installed ("There are 1 extensions that need to be uninstalled before this extension can be safely removed!"), and a re-upload also needs Installer > Delete first. So update by copying the files:
+
+1. Unzip the new `suawave.ocmod.zip` over the existing `extension/suawave/` folder of the shop, as the web server user, so every file is replaced and the owner stays the same (for example `sudo -u www-data unzip -o suawave.ocmod.zip -d <shop root>/extension/suawave/`).
+2. Open Extensions > Extensions > Payments > Suawave > Edit and click Save once. The schema routine runs again and the saved settings are shown unchanged.
+
+The Installer route (Extensions > Extensions > Payments > Uninstall, then Installer > Uninstall, Delete, upload and Install, then Payments > Install) works too, but Payments > Uninstall deletes every `payment_suawave_*` setting, so note the values first and enter them again on the Edit page. `install()` in the admin controller is safe to repeat: it creates missing tables and columns and fills only status settings that are empty, so an existing configuration is never overwritten.
 
 ## Settings
 
@@ -28,7 +37,7 @@ Targets OpenCart 4.0.2.x. See "OpenCart 3.x" at the end for what differs.
 | Shop public origin | The `https://` origin exactly as the gateway reaches your shop, for example `https://shop.example`. Callback signatures cover the full URL, so this must match what the gateway called. |
 | Order currency | The currency code in which orders are paid, for example `USD`. The method is offered only for orders in this currency and the token amount equals the order total one to one (a USD stablecoin needs `USD`). There is no exchange rate lookup. |
 | Order status while waiting | Status set when the customer starts the payment. |
-| Order status after payment | Status set when the confirmed callback arrives. |
+| Order status after payment | Status set when the confirmed callback arrives. The default is the status named Processing; if the shop has none, the first `config_processing_status` entry. |
 | Status, sort order | As for any payment method. |
 
 The page shows the callback endpoint of your shop (`index.php?route=extension/suawave/payment/suawave.callback`). You do not register it anywhere: the extension passes a callback URL with the order id and a random nonce when it creates each address.
@@ -39,6 +48,16 @@ The page shows the callback endpoint of your shop (`index.php?route=extension/su
 2. The page shows the amount, the address and a QR code containing the deposit address. The QR code is drawn in the browser by the bundled `qrcode.js`. Nothing is sent to a QR service.
 3. The gateway calls your callback URL. A `pending=1` callback only records "detected" and shows a message. It never marks the order paid. A `pending=0` callback adds `value_coin` to the amount received. When the sum reaches the order amount, the order gets your "paid" status through `model_checkout_order->addHistory()`. A smaller deposit leaves the order waiting and adds an order history entry (amount received, outstanding, transaction hash); later deposits add up, and the completing deposit adds the final entry with the total. A larger deposit also counts as paid.
 4. The checkout page polls a local status endpoint (it reads your database only) and goes to the success page once the order is paid. The browser can never mark an order paid.
+
+## Payment window
+
+The create answer carries `expires_at` (24h by default on the gateway). The extension stores it with the payment attempt and shows it as "Pay before" in the shop timezone; the first confirm and every renewal add a customer-visible order history entry with that deadline.
+
+- After the deadline the checkout no longer shows the address or the QR code: the status endpoint answers `closed` with the order id, the page drops the address and enables the pay button again. Clicking it requests a fresh address with a new nonce; the old attempt is marked `superseded` and kept so a late callback can still be matched.
+- A paid attempt is never renewed and the confirm step answers `paid` without the address. An attempt with a detected deposit is not renewed either, because a deposit seen before the deadline is still confirmed after it; the page shows "detected" without the address.
+- Renewal, callbacks and expiry notes for one order are serialized by a MySQL named lock (`GET_LOCK`) taken before the transaction. Renewal reads the current attempt under the lock after the create request and keeps it if it was paid meanwhile. The confirm step's order history entry (waiting status and deadline) is written inside that same lock from the order status read there, and never for a paid order, so a payment that lands right after the renewal cannot be reverted by `addHistory()`. A callback checks nonce and address under the same lock. The order is marked paid once: the first confirmed full payment on any of its attempts, also a superseded one (an on-time deposit finalized after the renewal), pays it and that `suawave_payment` row becomes `paid`, which records the paying attempt (its address is in the history entry). Once the order is paid, every further confirmed deposit on any attempt only adds the history entry "payment received on a previous attempt, reconcile".
+- When an unpaid attempt's deadline passes, one customer-visible history entry (the closed-window text with the order id) is added per attempt; the attempt's `expiry_noted_at` column is the marker. No entry is added once the order is paid or for an attempt that is no longer current.
+- Expiry entries are written by page-triggered sweeps (the payment step and its status polling), not by a cron job. A shop without checkout traffic adds the entry for an abandoned order only on the next checkout or status request.
 
 ## Callback verification
 
@@ -58,7 +77,9 @@ Events treated as paid: only a verified confirmed callback (`pending=0`) whose a
 
 - One order currency per installation, no conversion.
 - The QR code encodes the plain deposit address. The amount is shown next to it and is not part of the QR payload.
-- Funds sent to an address for an older, different amount of the same order still count against that older record.
+- The amount is shown as stored. A USDT or USDC amount with more than 6 decimals would be shown rounded up to 6 (never half up), so paying the shown amount always covers the stored amount; the callback is matched against the exact stored amount. Order history entries show deposits and totals exactly, without trailing zeros.
+- Funds sent to the address of a superseded attempt pay the order only while it is unpaid and the attempt's amount still equals the order total; otherwise they are recorded on that attempt and reported in the order history for manual reconciliation.
+- Expiry history entries need checkout traffic (see Payment window).
 - Make sure PHP's `max_execution_time` and your web server allow the callback to finish within the gateway's 30 second limit.
 
 ## Tests
@@ -71,7 +92,11 @@ vendor/bin/phpunit
 
 The tests need no OpenCart. They cover a known-good signature vector (GET and JSON POST, `tests/vector.json`), missing, malformed and bad signatures, a signature over different bytes, a reordered query string, a wrong configured origin, unparseable, short and non-RSA keys, a `uuid` replay, partial and over payments, pending callbacks, rollback and retry, the API client request shape and error mapping, and the decimal arithmetic.
 
-Not covered without a store: the files under `admin/` and `catalog/` (controllers, models, Twig templates, language files), `OpenCartPaymentStore` SQL and transactions, `OpenCartOrderGateway`, and the checkout JavaScript.
+They also drive the payment window through `CheckoutService`, `CallbackProcessor` and `ExpiryNotifier` against an in-memory store that enforces the order and row locks: renewal after expiry, a late callback on a superseded attempt, the old callback paying during the renewal's create request, one expiry entry per attempt, the confirm and status payloads (`PaymentPage`) after expiry, and the schema upgrade statements.
+
+`CatalogControllerTest` drives the real catalog controller (`confirm()` and `status()`) with small OpenCart stubs for the registry, loader, config, order model and `addHistory()`: a payment right after the renewal or during its create request keeps the paid status, and no history is written for a paid order.
+
+Not covered without a store: the admin controller and language files, real MySQL locking and SQL execution, and the checkout JavaScript (the template is only checked textually).
 
 ## Mock-mode end-to-end script
 

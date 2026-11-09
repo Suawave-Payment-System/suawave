@@ -40,6 +40,9 @@ add_action('plugins_loaded', static function (): void {
         $gateways[] = Suawave\WooGateway::class;
         return $gateways;
     });
+    add_action(Suawave\WooOrderStore::EXPIRY_HOOK, static function ($orderId): void {
+        Suawave\WooPayments::live()->closeFromSchedule($orderId);
+    });
 });
 
 add_action('woocommerce_blocks_loaded', static function (): void {

@@ -28,7 +28,12 @@ final class GatewayClient
         if (!Decimal::isValid($data['minimum_transaction_coin'])) {
             throw new GatewayException('the gateway answer has an invalid minimum');
         }
-        return new CreatedAddress($data['address_in'], $data['address_out'], $data['minimum_transaction_coin']);
+        return new CreatedAddress(
+            $data['address_in'],
+            $data['address_out'],
+            $data['minimum_transaction_coin'],
+            PaymentWindow::parse($data['expires_at'] ?? null)
+        );
     }
 
     public function minimum(string $ticker): string

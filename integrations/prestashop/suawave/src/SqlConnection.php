@@ -10,6 +10,8 @@ interface SqlConnection
 
     public function fetchFirstRow(string $sql): ?array;
 
+    public function fetchRows(string $sql): array;
+
     public function affectedRows(): int;
 
     public function escape(string $value): string;

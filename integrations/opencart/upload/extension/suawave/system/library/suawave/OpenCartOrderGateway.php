@@ -24,8 +24,18 @@ final class OpenCartOrderGateway implements OrderGateway
 
     public function addNote(int $orderId, string $comment): void
     {
+        $this->addHistoryKeepingStatus($orderId, $comment, false);
+    }
+
+    public function addCustomerNote(int $orderId, string $comment): void
+    {
+        $this->addHistoryKeepingStatus($orderId, $comment, true);
+    }
+
+    private function addHistoryKeepingStatus(int $orderId, string $comment, bool $notify): void
+    {
         $row = $this->readOrder($orderId);
-        $this->orderModel->addHistory($orderId, $row === null ? 0 : (int) $row['order_status_id'], $comment, false);
+        $this->orderModel->addHistory($orderId, $row === null ? 0 : (int) $row['order_status_id'], $comment, $notify);
     }
 
     public function currentPayable(int $orderId): ?array

@@ -26,6 +26,7 @@ final class WooGateway extends \WC_Payment_Gateway
         $this->enabled = $this->get_option('enabled');
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, [$this, 'process_admin_options']);
         add_action('woocommerce_thankyou_' . $this->id, [$this, 'renderInstructions']);
+        add_action('woocommerce_view_order', [$this, 'renderInstructions'], 5);
         add_action('woocommerce_email_before_order_table', [$this, 'renderEmailInstructions'], 10, 3);
     }
 
@@ -84,24 +85,16 @@ final class WooGateway extends \WC_Payment_Gateway
         try {
             $client = Settings::client();
             $amount = $this->amountFor($client, $ticker, (string) $order->get_total(), $order->get_currency());
-            $nonce = bin2hex(random_bytes(16));
-            $created = $client->createAddress($ticker, $this->get_option('payout_address'), Settings::callbackUrl('woo', (string) $order->get_id(), $nonce));
+            $outcome = WooPayments::live()->open($order, $client, $ticker, $this->get_option('payout_address'), $amount);
+        } catch (LockUnavailable $busy) {
+            return $this->fail('The order is being updated. Please try again in a moment.');
         } catch (GatewayException $failure) {
             return $this->fail('The crypto payment could not be started: ' . $failure->getMessage());
         }
-        if (Money::compare($amount, $created['minimum']) < 0) {
-            return $this->fail(sprintf('The amount %s is below the minimum deposit of %s.', $amount, $created['minimum']));
+        if ($outcome === WooPayments::ALREADY_PAID) {
+            return ['result' => 'success', 'redirect' => $this->get_return_url($order)];
         }
-        $order->update_meta_data('_suawave_nonce', $nonce);
-        $order->update_meta_data('_suawave_address', $created['address_in']);
-        $order->update_meta_data('_suawave_coin', str_replace('/', '_', $ticker));
-        $order->update_meta_data('_suawave_ticker', $ticker);
-        $order->update_meta_data('_suawave_amount', $amount);
-        $order->update_meta_data('_suawave_minimum', $created['minimum']);
-        $order->update_meta_data('_suawave_received', '0');
-        $order->update_status('on-hold', 'Waiting for the crypto deposit.');
-        $order->save();
-        wc_reduce_stock_levels($order->get_id());
+        wc_maybe_reduce_stock_levels($order->get_id());
         if (function_exists('WC') && WC()->cart !== null) {
             WC()->cart->empty_cart();
         }
@@ -112,15 +105,20 @@ final class WooGateway extends \WC_Payment_Gateway
     {
         $order = wc_get_order($orderId);
         if ($order instanceof \WC_Order && $order->get_payment_method() === $this->id) {
-            echo wp_kses($this->instructionsHtml($order, true), self::allowedHtml(), self::allowedProtocols());
+            echo wp_kses(WooPayments::live()->html($order, true, time(), wp_timezone()), self::allowedHtml(), self::allowedProtocols());
         }
     }
 
     public function renderEmailInstructions($order, $sentToAdmin, $plainText): void
     {
-        if (!$sentToAdmin && !$plainText && $order instanceof \WC_Order && $order->get_payment_method() === $this->id && $order->has_status('on-hold')) {
-            echo wp_kses($this->instructionsHtml($order, false), self::allowedHtml(), self::allowedProtocols());
+        if ($sentToAdmin || !$order instanceof \WC_Order || $order->get_payment_method() !== $this->id || !$order->has_status(['pending', 'on-hold', 'processing', 'completed'])) {
+            return;
         }
+        if ($plainText) {
+            echo esc_html(WooPayments::live()->text($order, time(), wp_timezone()));
+            return;
+        }
+        echo wp_kses(WooPayments::live()->html($order, false, time(), wp_timezone(), true), self::allowedHtml(), self::allowedProtocols());
     }
 
     private static function allowedHtml(): array
@@ -156,49 +154,5 @@ final class WooGateway extends \WC_Payment_Gateway
     {
         wc_add_notice($message, 'error');
         return ['result' => 'failure'];
-    }
-
-    private function instructionsHtml(\WC_Order $order, bool $withQr): string
-    {
-        $address = (string) $order->get_meta('_suawave_address');
-        $amount = (string) $order->get_meta('_suawave_amount');
-        if ($address === '' || $amount === '') {
-            return '';
-        }
-        $ticker = (string) $order->get_meta('_suawave_ticker');
-        $symbol = strtoupper(substr($ticker, (int) strpos($ticker, '/') + 1));
-        $received = (string) $order->get_meta('_suawave_received');
-        $html = '<section class="suawave-payment-instructions"><h2>Suawave payment</h2>';
-        if ($order->is_paid()) {
-            return $html . '<p>Payment received. Thank you.</p></section>';
-        }
-        $html .= '<ul>';
-        $html .= '<li>Send exactly: <strong>' . esc_html($amount . ' ' . $symbol) . '</strong></li>';
-        $html .= '<li>To address: <strong style="word-break:break-all">' . esc_html($address) . '</strong></li>';
-        $html .= '<li>Network: ' . esc_html($ticker) . '</li>';
-        $html .= '<li>Minimum deposit: ' . esc_html((string) $order->get_meta('_suawave_minimum') . ' ' . $symbol) . '</li>';
-        if ($received !== '' && $received !== '0') {
-            $html .= '<li>Received so far: ' . esc_html($received . ' ' . $symbol) . '</li>';
-        }
-        $html .= '</ul>';
-        $image = $withQr ? $this->qrImage($order, $ticker, $address, $amount) : null;
-        if ($image !== null) {
-            $html .= '<p><img alt="Payment QR code" width="256" height="256" src="' . esc_attr($image) . '"></p>';
-        }
-        return $html . '<p>This page does not update by itself. The order is marked paid once the gateway confirms your deposit.</p></section>';
-    }
-
-    private function qrImage(\WC_Order $order, string $ticker, string $address, string $amount): ?string
-    {
-        $cached = (string) $order->get_meta('_suawave_qr');
-        if ($cached !== '') {
-            return $cached;
-        }
-        $image = Settings::client()->qrCode($ticker, $address, $amount);
-        if ($image !== null) {
-            $order->update_meta_data('_suawave_qr', $image);
-            $order->save();
-        }
-        return $image;
     }
 }

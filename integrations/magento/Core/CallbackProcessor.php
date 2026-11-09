@@ -80,36 +80,68 @@ class CallbackProcessor
             return CallbackResponse::rejected(400, 'malformed callback');
         }
 
-        $expected = $this->ledger->find($reference);
-        if ($expected === null) {
-            return CallbackResponse::rejected(404, 'unknown order');
-        }
-        if (!hash_equals($expected->nonce, $nonce)
-            || !$this->sameAddress($expected->depositAddress, $address)
-            || $coin !== str_replace('/', '_', $expected->ticker)
-        ) {
-            return CallbackResponse::rejected(403, 'callback does not match the order');
-        }
-
         return $this->transactions->runLocked(
             $reference,
-            fn (): CallbackResponse => $this->applyConfirmed($reference, $uuid, $deposit, $amount)
+            fn (): CallbackResponse => $this->applyConfirmed($reference, $nonce, $address, $coin, $uuid, $deposit, $amount)
         );
     }
 
-    private function applyConfirmed(string $reference, string $uuid, string $deposit, string $amount): CallbackResponse
-    {
+    private function applyConfirmed(
+        string $reference,
+        string $nonce,
+        string $address,
+        string $coin,
+        string $uuid,
+        string $deposit,
+        string $amount
+    ): CallbackResponse {
         $current = $this->ledger->find($reference);
         if ($current === null) {
             return CallbackResponse::rejected(404, 'unknown order');
         }
+        $attempt = $this->matchingAttempt($current, $nonce, $address, $coin);
+        if ($attempt === false) {
+            return CallbackResponse::rejected(403, 'callback does not match the order');
+        }
         if (!$this->events->claim($uuid, $reference, $deposit)) {
             return CallbackResponse::acknowledged();
         }
-        $total = Decimal::add($current->receivedAmount, $amount);
-        $fullyPaid = $current->paid || Decimal::atLeast($total, $current->expectedAmount);
-        $this->ledger->applyDeposit($reference, $uuid, $deposit, $amount, $total, $fullyPaid);
+        if ($current->paid) {
+            $this->ledger->noteReconcile($reference, $uuid, $deposit, $amount);
+            return CallbackResponse::acknowledged();
+        }
+        $received = $attempt === null ? $current->receivedAmount : $current->previous[$attempt]['received'];
+        $expected = $attempt === null ? $current->expectedAmount : $current->previous[$attempt]['expected'];
+        $total = Decimal::add($received, $amount);
+        $this->ledger->applyDeposit($reference, $uuid, $deposit, $amount, $total, Decimal::atLeast($total, $expected), $attempt);
         return CallbackResponse::acknowledged();
+    }
+
+    private function matchingAttempt(ExpectedPayment $current, string $nonce, string $address, string $coin): int|false|null
+    {
+        if ($this->matches($current->nonce, $current->depositAddress, $current->ticker, $nonce, $address, $coin)) {
+            return null;
+        }
+        foreach ($current->previous as $index => $attempt) {
+            if ($this->matches($attempt['nonce'], $attempt['address'], $attempt['ticker'], $nonce, $address, $coin)) {
+                return $index;
+            }
+        }
+        return false;
+    }
+
+    private function matches(
+        string $storedNonce,
+        string $storedAddress,
+        string $storedTicker,
+        string $nonce,
+        string $address,
+        string $coin
+    ): bool {
+        return $storedNonce !== ''
+            && hash_equals($storedNonce, $nonce)
+            && $this->sameAddress($storedAddress, $address)
+            && $coin === str_replace('/', '_', $storedTicker);
     }
 
     private function sameAddress(string $stored, string $received): bool

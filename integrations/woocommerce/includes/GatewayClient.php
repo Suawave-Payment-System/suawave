@@ -38,7 +38,11 @@ final class GatewayClient
         if (!Money::isDecimal($body['minimum_transaction_coin'])) {
             throw new GatewayException('gateway answered an invalid minimum');
         }
-        return ['address_in' => $body['address_in'], 'minimum' => $body['minimum_transaction_coin']];
+        return [
+            'address_in' => $body['address_in'],
+            'minimum' => $body['minimum_transaction_coin'],
+            'expires_at' => PaymentWindow::parse($body['expires_at'] ?? null),
+        ];
     }
 
     public function convert(string $ticker, string $value, string $fromCurrency): string

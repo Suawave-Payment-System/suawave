@@ -57,10 +57,11 @@ Save the configuration and flush the cache.
 2. The success page shows the amount in the token, the deposit address, the network and a QR code.
 3. After the customer pays, the order stays `pending` until the gateway confirms the deposit. A confirmed deposit invoices the order and sets it to `processing`.
 4. A smaller payment adds an order comment and keeps the order open. A later deposit is added to the total.
+5. The page and the order's payment information show the deadline. After it, an unpaid order shows "Payment window closed" with the order number and no address; the customer can ask for a new payment address with one button. A paid order shows "Payment received".
 
 ## What you see as the merchant
 
-Every confirmed deposit is written as an order comment with the transaction hash and the running total. Nothing the customer's browser sends changes an order.
+Every confirmed deposit is written as an order comment with the transaction hash and the running total. A closed payment window and a renewed address are written as comments too. A deposit to a replaced address still pays an unpaid order. A deposit that arrives after the order is already paid adds the comment "payment received on a previous attempt, reconcile" and never changes the order status, so check it against the gateway and refund it by hand. Nothing the customer's browser sends changes an order.
 
 ## Check that it works
 

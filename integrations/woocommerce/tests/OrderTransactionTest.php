@@ -113,12 +113,14 @@ final class OrderTransactionTest extends TestCase
         $this->assertSame(['received' => '100.000000', 'txids' => ['tx1', 'tx2'], 'paid' => true], $totals);
     }
 
-    public function testDepositAfterThePaidTransitionNeverPaysAgain(): void
+    public function testDepositAfterThePaidTransitionIsOnlyRecordedForReconciliation(): void
     {
         $this->confirmed('cccccccc-0000-0000-0000-000000000001', 'tx1', '100.000000');
         $this->confirmed('cccccccc-0000-0000-0000-000000000002', 'tx2', '5.000000');
-        $this->assertSame(['tx1', 'tx2'], $this->orders->depositCalls);
-        $this->assertSame('105.000000', $this->orders->orders['1001']['received']);
+        $this->assertSame(['tx1'], $this->orders->depositCalls);
+        $this->assertSame([[self::ADDRESS, 'tx2', '5.000000']], $this->orders->afterPaidCalls);
+        $this->assertSame('100.000000', $this->orders->orders['1001']['received']);
+        $this->assertSame([self::NONCE], $this->orders->paidBy);
         $this->assertCount(1, $this->orders->paidCalls);
     }
 

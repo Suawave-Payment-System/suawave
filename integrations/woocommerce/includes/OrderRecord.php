@@ -14,7 +14,8 @@ final class OrderRecord
         public readonly string $nonce,
         public readonly string $addressIn,
         public readonly string $coin,
-        public readonly string $amount
+        public readonly string $amount,
+        public readonly bool $current = true
     ) {
     }
 }

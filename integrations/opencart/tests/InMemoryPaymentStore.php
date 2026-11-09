@@ -16,6 +16,8 @@ final class InMemoryPaymentStore implements PaymentStore
     public array $operations = [];
     private bool $inTransaction = false;
     private array $lockedAddresses = [];
+    private array $heldOrders = [];
+    public ?\Closure $afterUnlock = null;
 
     public function findByOrderId(int $orderId): ?PaymentRecord
     {
@@ -26,6 +28,26 @@ final class InMemoryPaymentStore implements PaymentStore
             }
         }
         return $found;
+    }
+
+    public function findPaidByOrderId(int $orderId): ?PaymentRecord
+    {
+        foreach ($this->records as $record) {
+            if ($record->orderId === $orderId && $record->status === PaymentRecord::PAID) {
+                return $record;
+            }
+        }
+        return null;
+    }
+
+    public function findOverdue(int $now): ?PaymentRecord
+    {
+        foreach ($this->records as $record) {
+            if ($record->orderId > 0 && $record->isOverdue($now)) {
+                return $record;
+            }
+        }
+        return null;
     }
 
     public function findByAddressIn(string $addressIn): ?PaymentRecord
@@ -45,7 +67,7 @@ final class InMemoryPaymentStore implements PaymentStore
 
     public function save(PaymentRecord $record): void
     {
-        $this->requireLock($record->addressIn);
+        $this->requireLock($record->addressIn, $record->orderId);
         $this->operations[] = 'save:' . $record->status . ':' . $record->received;
         $this->records[$record->addressIn] = $record;
     }
@@ -82,10 +104,42 @@ final class InMemoryPaymentStore implements PaymentStore
         return $result;
     }
 
-    private function requireLock(string $addressIn): void
+    public function withOrderLock(int $orderId, callable $work): mixed
     {
-        if ($this->inTransaction && !isset($this->lockedAddresses[$addressIn])) {
+        if (isset($this->heldOrders[$orderId])) {
+            throw new LogicException('the order lock is already held, a second request would wait here');
+        }
+        $this->operations[] = 'order-lock:' . $orderId;
+        $this->heldOrders[$orderId] = true;
+        try {
+            return $this->transactional($work);
+        } finally {
+            unset($this->heldOrders[$orderId]);
+            $this->operations[] = 'order-unlock:' . $orderId;
+            $next = $this->afterUnlock;
+            $this->afterUnlock = null;
+            if ($next !== null) {
+                $next();
+            }
+        }
+    }
+
+    public function holdsOrderLock(int $orderId): bool
+    {
+        return isset($this->heldOrders[$orderId]);
+    }
+
+    private function requireLock(string $addressIn, ?int $orderId = null): void
+    {
+        if (!$this->inTransaction) {
+            return;
+        }
+        if (!isset($this->lockedAddresses[$addressIn])) {
             throw new LogicException('writes must happen under the row lock of the payment');
+        }
+        $orderId ??= isset($this->records[$addressIn]) ? $this->records[$addressIn]->orderId : null;
+        if ($orderId !== null && !isset($this->heldOrders[$orderId])) {
+            throw new LogicException('writes must happen under the order lock');
         }
     }
 }

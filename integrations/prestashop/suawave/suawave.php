@@ -11,10 +11,13 @@ require_once __DIR__ . '/src/autoload.php';
 use Suawave\CurlTransport;
 use Suawave\GatewayClient;
 use Suawave\GatewayException;
+use Suawave\InstructionsView;
 use Suawave\InvalidPublicKey;
 use Suawave\PaymentRecord;
+use Suawave\PaymentWindow;
 use Suawave\PrestashopPublicKeyProvider;
 use Suawave\PrestashopRuntime;
+use Suawave\Schema;
 use Suawave\SignatureVerifier;
 use PrestaShop\PrestaShop\Core\Payment\PaymentOption;
 
@@ -39,8 +42,15 @@ class Suawave extends PaymentModule
         return parent::install()
             && $this->registerHook('paymentOptions')
             && $this->registerHook('paymentReturn')
+            && $this->registerHook('displayOrderDetail')
+            && $this->registerHook('actionCronJob')
             && $this->createTables()
             && $this->createAwaitingState();
+    }
+
+    public function enable($force_all = false)
+    {
+        return parent::enable($force_all) && $this->upgradeTables();
     }
 
     public function uninstall(): bool
@@ -52,6 +62,7 @@ class Suawave extends PaymentModule
             PrestashopRuntime::ORIGIN,
             PrestashopRuntime::CURRENCY,
             PrestashopPublicKeyProvider::SETTING,
+            PrestashopRuntime::SCHEMA,
         ] as $name) {
             Configuration::deleteByName($name);
         }
@@ -63,6 +74,7 @@ class Suawave extends PaymentModule
         if (!$this->active || !PrestashopRuntime::isConfigured()) {
             return [];
         }
+        $this->sweepExpired();
         $currency = new Currency((int) $params['cart']->id_currency);
         if ($currency->iso_code !== PrestashopRuntime::setting(PrestashopRuntime::CURRENCY)) {
             return [];
@@ -79,39 +91,84 @@ class Suawave extends PaymentModule
         if (!$this->active || !isset($params['order']) || $params['order']->module !== $this->name) {
             return '';
         }
-        $record = PrestashopRuntime::store()->findByOrderId((int) $params['order']->id);
+        return $this->renderInstructions($params['order']);
+    }
+
+    public function hookDisplayOrderDetail(array $params): string
+    {
+        if (!$this->active || !isset($params['order']) || $params['order']->module !== $this->name) {
+            return '';
+        }
+        return $this->renderInstructions($params['order']);
+    }
+
+    public function hookActionCronJob(): void
+    {
+        $this->sweepExpired();
+    }
+
+    public function deadlineLabel(?int $expiresAt): string
+    {
+        if ($expiresAt === null) {
+            return '';
+        }
+        return PaymentWindow::format($expiresAt, PrestashopRuntime::zone());
+    }
+
+    private function renderInstructions(Order $order): string
+    {
+        $record = PrestashopRuntime::store()->findByOrderId((int) $order->id);
         if ($record === null) {
             return '';
         }
-        $this->context->smarty->assign([
-            'suawave_amount' => $record->amount,
-            'suawave_received' => $record->received,
-            'suawave_ticker' => strtoupper($record->ticker),
-            'suawave_address' => $record->addressIn,
-            'suawave_minimum' => $record->minimum,
-            'suawave_paid' => $record->status === PaymentRecord::PAID,
-            'suawave_detected' => $record->status === PaymentRecord::DETECTED,
-            'suawave_qr' => $this->qrFor($record),
-        ]);
+        $now = time();
+        if ($record->isOverdue($now)) {
+            PrestashopRuntime::expiry($this->expiryNote())->noteIfDue($record, $now);
+        }
+        $retry = (int) $order->getCurrentState() === (int) PrestashopRuntime::setting(PrestashopRuntime::AWAITING_STATE);
+        $this->context->smarty->assign(InstructionsView::variables(
+            $record,
+            (int) $order->id,
+            (string) $order->reference,
+            $this->deadlineLabel($record->expiresAt),
+            $now,
+            fn (PaymentRecord $shown, string $amount): string => $this->qrFor($shown, $amount),
+            $retry ? $this->context->link->getModuleLink($this->name, 'validation', [], true) : '',
+            $retry ? (string) $order->secure_key : ''
+        ));
         return $this->fetch('module:suawave/views/templates/hook/payment_return.tpl');
+    }
+
+    private function sweepExpired(): void
+    {
+        try {
+            PrestashopRuntime::expiry($this->expiryNote())->sweep(time());
+        } catch (Throwable $failure) {
+            PrestaShopLogger::addLog('suawave: expiry sweep failed: ' . $failure->getMessage(), 3);
+        }
+    }
+
+    private function expiryNote(): string
+    {
+        return $this->trans('The Suawave payment window closed without a confirmed payment. The deposit address is no longer shown to the customer.', [], 'Modules.Suawave.Shop');
     }
 
     public function getContent(): string
     {
         $messages = '';
+        if (!$this->upgradeTables()) {
+            $messages .= $this->displayError($this->trans('The Suawave tables could not be upgraded, see the shop log.', [], 'Modules.Suawave.Admin'));
+        }
         if (Tools::isSubmit('submitSuawave')) {
             $messages = $this->saveSettings();
         }
         return $messages . $this->renderForm();
     }
 
-    private function qrFor(PaymentRecord $record): string
+    private function qrFor(PaymentRecord $record, string $amount): string
     {
-        if ($record->status === PaymentRecord::PAID) {
-            return '';
-        }
         try {
-            return PrestashopRuntime::client()->qrCode($record->ticker, $record->addressIn, $record->amount);
+            return PrestashopRuntime::client()->qrCode($record->ticker, $record->addressIn, $amount);
         } catch (GatewayException) {
             return '';
         }
@@ -218,35 +275,24 @@ class Suawave extends PaymentModule
 
     private function createTables(): bool
     {
-        $prefix = _DB_PREFIX_;
-        $engine = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4';
-        return Db::getInstance()->execute(
-            'CREATE TABLE IF NOT EXISTS `' . $prefix . 'suawave_payment` ('
-            . '`id_payment` INT UNSIGNED NOT NULL AUTO_INCREMENT, '
-            . '`id_cart` INT UNSIGNED NOT NULL, '
-            . '`id_order` INT UNSIGNED NOT NULL DEFAULT 0, '
-            . '`nonce` VARCHAR(64) NOT NULL, '
-            . '`ticker` VARCHAR(32) NOT NULL, '
-            . '`address_in` VARCHAR(128) NOT NULL, '
-            . '`payout_address` VARCHAR(128) NOT NULL, '
-            . '`amount` VARCHAR(64) NOT NULL, '
-            . '`minimum` VARCHAR(64) NOT NULL, '
-            . "`received` VARCHAR(64) NOT NULL DEFAULT '0', "
-            . '`status` VARCHAR(16) NOT NULL, '
-            . '`date_add` DATETIME NOT NULL, '
-            . 'PRIMARY KEY (`id_payment`), '
-            . 'UNIQUE KEY `address_in` (`address_in`), '
-            . 'KEY `id_cart` (`id_cart`), '
-            . 'KEY `id_order` (`id_order`)'
-            . ') ' . $engine
-        ) && Db::getInstance()->execute(
-            'CREATE TABLE IF NOT EXISTS `' . $prefix . 'suawave_event` ('
-            . '`uuid` VARCHAR(64) NOT NULL, '
-            . '`address_in` VARCHAR(128) NOT NULL, '
-            . '`date_add` DATETIME NOT NULL, '
-            . 'PRIMARY KEY (`uuid`)'
-            . ') ' . $engine
-        );
+        try {
+            PrestashopRuntime::schema()->install();
+        } catch (Throwable $failure) {
+            PrestaShopLogger::addLog('suawave: table creation failed: ' . $failure->getMessage(), 3);
+            return false;
+        }
+        return Configuration::updateValue(PrestashopRuntime::SCHEMA, Schema::VERSION);
+    }
+
+    private function upgradeTables(): bool
+    {
+        try {
+            PrestashopRuntime::schema()->upgrade();
+        } catch (Throwable $failure) {
+            PrestaShopLogger::addLog('suawave: table upgrade failed: ' . $failure->getMessage(), 3);
+            return false;
+        }
+        return Configuration::updateValue(PrestashopRuntime::SCHEMA, Schema::VERSION);
     }
 
     private function createAwaitingState(): bool

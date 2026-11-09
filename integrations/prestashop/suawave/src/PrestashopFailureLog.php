@@ -12,7 +12,7 @@ final class PrestashopFailureLog implements FailureLog
     public function record(Throwable $failure): void
     {
         PrestaShopLogger::addLog(
-            'suawave callback failed: ' . get_class($failure) . ': ' . $failure->getMessage() . ' at ' . $failure->getFile() . ':' . $failure->getLine(),
+            ($failure instanceof MailFailure ? 'suawave mail failed: ' : 'suawave callback failed: ') . get_class($failure) . ': ' . $failure->getMessage() . ' at ' . $failure->getFile() . ':' . $failure->getLine(),
             3
         );
     }

@@ -7,6 +7,25 @@ if ($details === null) {
     return;
 }
 ?>
+<?php if ($details['state'] === 'paid'): ?>
+<div class="suawave-instructions suawave-instructions-paid">
+    <h2><?= $escaper->escapeHtml(__('Payment received')) ?></h2>
+    <p><?= $escaper->escapeHtml(__('The crypto payment for order %1 is paid. No further transfer is needed.', $details['order_id'])) ?></p>
+</div>
+<?php return; endif; ?>
+<?php if ($details['state'] === 'closed'): ?>
+<div class="suawave-instructions suawave-instructions-closed">
+    <h2><?= $escaper->escapeHtml(__('Payment window closed')) ?></h2>
+    <p><?= $escaper->escapeHtml(__('The payment window for order %1 closed on %2. Do not send funds to the old address. Please contact the shop.', $details['order_id'], $details['deadline'])) ?></p>
+    <form method="post" action="<?= $escaper->escapeUrl($details['renew_url']) ?>">
+        <?= $block->getBlockHtml('formkey') ?>
+        <?php if ($details['order_entity'] !== '0'): ?>
+            <input type="hidden" name="order_id" value="<?= $escaper->escapeHtmlAttr($details['order_entity']) ?>"/>
+        <?php endif; ?>
+        <button type="submit" class="action primary"><?= $escaper->escapeHtml(__('Get a new payment address')) ?></button>
+    </form>
+</div>
+<?php return; endif; ?>
 <div class="suawave-instructions">
     <h2><?= $escaper->escapeHtml(__('Complete your crypto payment')) ?></h2>
     <p>
@@ -15,6 +34,9 @@ if ($details === null) {
         <?= $escaper->escapeHtml(__('to this address:')) ?>
     </p>
     <p><code><?= $escaper->escapeHtml($details['address']) ?></code></p>
+    <?php if ($details['deadline'] !== ''): ?>
+        <p><?= $escaper->escapeHtml(__('Pay before')) ?>: <strong><?= $escaper->escapeHtml($details['deadline']) ?></strong></p>
+    <?php endif; ?>
     <?php if ($details['qr'] !== null): ?>
         <p><img src="<?= $escaper->escapeHtmlAttr($details['qr']) ?>" width="256" height="256" alt="<?= $escaper->escapeHtmlAttr(__('Payment QR code')) ?>"/></p>
     <?php endif; ?>

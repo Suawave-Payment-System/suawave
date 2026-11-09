@@ -23,10 +23,10 @@ final class WpInvoiceStore implements OrderStore
         return is_array($invoice) ? $invoice : null;
     }
 
-    public function load(string $orderId): ?OrderRecord
+    public function load(string $orderId, string $nonce): ?OrderRecord
     {
         $invoice = self::read($orderId);
-        if ($invoice === null) {
+        if ($invoice === null || !hash_equals((string) $invoice['nonce'], $nonce)) {
             return null;
         }
         return new OrderRecord(
@@ -48,7 +48,7 @@ final class WpInvoiceStore implements OrderStore
         do_action('suawave_invoice_detected', $orderId, $invoice);
     }
 
-    public function recordDeposit(string $orderId, string $txidIn, string $txidOut, string $valueCoin, string $received, bool $paid): void
+    public function recordDeposit(string $orderId, OrderRecord $attempt, string $txidIn, string $txidOut, string $valueCoin, string $received, bool $paid): void
     {
         $invoice = self::read($orderId);
         if ($invoice === null) {
@@ -61,5 +61,15 @@ final class WpInvoiceStore implements OrderStore
         if ($paid && !$alreadyPaid) {
             do_action('suawave_invoice_paid', $orderId, $invoice);
         }
+    }
+
+    public function recordAfterPaid(string $orderId, string $addressIn, string $txidIn, string $valueCoin): void
+    {
+        $invoice = self::read($orderId);
+        if ($invoice === null) {
+            throw new \RuntimeException('invoice vanished');
+        }
+        $invoice['received_after_paid'] = [...($invoice['received_after_paid'] ?? []), ['txid_in' => $txidIn, 'value_coin' => $valueCoin]];
+        update_option(self::PREFIX . $orderId, $invoice, false);
     }
 }

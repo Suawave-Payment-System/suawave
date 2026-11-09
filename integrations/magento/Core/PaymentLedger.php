@@ -14,6 +14,14 @@ interface PaymentLedger
         string $depositTransaction,
         string $depositAmount,
         string $newReceivedTotal,
-        bool $fullyPaid
+        bool $fullyPaid,
+        ?int $previousAttempt = null
+    ): void;
+
+    public function noteReconcile(
+        string $orderReference,
+        string $eventUuid,
+        string $depositTransaction,
+        string $depositAmount
     ): void;
 }

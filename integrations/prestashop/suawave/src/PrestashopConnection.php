@@ -27,6 +27,16 @@ final class PrestashopConnection implements SqlConnection
         return $rows === [] ? null : $rows[0];
     }
 
+    public function fetchRows(string $sql): array
+    {
+        $db = Db::getInstance();
+        $rows = $db->executeS($sql, true, false);
+        if ($rows === false) {
+            throw new RuntimeException('database query failed: ' . $db->getMsgError());
+        }
+        return $rows;
+    }
+
     public function affectedRows(): int
     {
         return (int) Db::getInstance()->Affected_Rows();

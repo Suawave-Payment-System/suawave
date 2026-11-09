@@ -12,7 +12,9 @@ interface PaymentStore
 
     public function findByAddressIn(string $addressIn): ?PaymentRecord;
 
-    public function lockByAddressIn(string $addressIn): ?PaymentRecord;
+    public function lockCart(int $cartId): array;
+
+    public function findOverdue(int $now): ?PaymentRecord;
 
     public function save(PaymentRecord $record): void;
 
