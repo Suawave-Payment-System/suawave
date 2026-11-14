@@ -1,7 +1,7 @@
 {
   "name": "@suawave/mcp",
-  "version": "1.0.0",
-  "mcpName": "io.github.suawave-payment-system/suawave-mcp",
+  "version": "1.0.1",
+  "mcpName": "io.github.Suawave-Payment-System/suawave-mcp",
   "description": "Model Context Protocol server for the Suawave API. A launcher that installs the suawave-mcp binary.",
   "keywords": ["mcp", "model-context-protocol", "suawave", "crypto", "payments", "stablecoin"],
   "homepage": "https://suawave.com/docs",

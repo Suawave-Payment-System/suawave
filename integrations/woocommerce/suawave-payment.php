@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Suawave Payments
- * Plugin URI: https://suawave.com
+ * Plugin URI: https://suawave.com/docs
  * Description: Accept stablecoin payments such as USDT in WooCommerce. An order is paid only after a signed callback verifies.
  * Version: 1.0.0
  * Requires at least: 6.0
