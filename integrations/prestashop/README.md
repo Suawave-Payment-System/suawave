@@ -2,7 +2,7 @@
 
 Lets customers pay a PrestaShop order in a stablecoin (for example USDT on TRON or BSC) through the gateway's public API. At checkout the shop creates a deposit address, shows the amount, the address and a QR code on the order confirmation page, and marks the order paid only when the gateway sends a signed, confirmed callback.
 
-Written against PrestaShop 8.1 and 1.7.8 (module declares a minimum of 1.7.7.0). It was not run inside a shop, see "Not covered without a shop".
+Written against PrestaShop 8.1 and 1.7.8 (module declares a minimum of 1.7.7.0). It runs end to end in a real PrestaShop 8.1.7 shop against the testnet gateway: install, configuration, checkout, payment page and signed callbacks. 1.7.8 was not run in a shop.
 
 ## Requirements
 
@@ -82,9 +82,9 @@ vendor/bin/phpunit
 
 The tests need no PrestaShop. They cover a known-good signature vector (GET and JSON POST, `tests/vector.json`), missing, malformed and bad signatures, a signature over different bytes, a reordered query string, a wrong configured origin, unparseable, short and non-RSA keys, key rotation with one re-fetch, a `uuid` replay, two different `uuid`s crediting once each with a single paid transition, two `uuid`s sharing one `txid_in` both credited, partial and over payments, pending callbacks, rollback and retry, the exact statement order against a fake database (transaction start, lock, claim, write, commit), the API client request shape and error mapping including the QR call, the decimal arithmetic, the payment window (deadline parsing, renewal of an expired attempt with a new nonce and address that supersedes the old one under the cart lock, a superseded attempt paying an unpaid order once and only noting on a paid one, the old attempt paying during the create request, one expiry message per attempt and none once paid), the `payment_return.tpl` output rendered from the real view variables (address and QR hidden after the deadline and for paid orders, order id shown, retry form), the validation controller run against stubbed PrestaShop classes (an existing order is renewed, never validated twice), and the schema upgrade statements.
 
-### Not covered without a shop
+### Not covered by the unit tests
 
-The files `suawave.php`, `controllers/front/callback.php` beyond its start-up order, and the `Prestashop*` classes in `src` (configuration page, the real `validateOrder()`, order status change through `OrderHistory`, the `Db` wrapper, hook registration). The template is rendered by a test renderer for the Smarty subset it uses, not by Smarty itself. The SQL strings are only checked against a fake connection, not against a real MySQL, so the lock behaviour under real concurrency is untested.
+These parts are exercised in the real PrestaShop 8.1.7 runs, not by `phpunit`: the files `suawave.php`, `controllers/front/callback.php` beyond its start-up order, and the `Prestashop*` classes in `src` (configuration page, the real `validateOrder()`, order status change through `OrderHistory`, the `Db` wrapper, hook registration). The template is rendered by a test renderer for the Smarty subset it uses, not by Smarty itself. The SQL strings are only checked against a fake connection, not against a real MySQL, so the lock behaviour under real concurrency is not covered by a test.
 
 ## Mock-mode end-to-end script
 
